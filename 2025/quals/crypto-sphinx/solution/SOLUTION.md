@@ -70,37 +70,47 @@ output byte to equal a left-half byte). For *this* cipher:
 ## 3. The route that *does* work: integral (Square) attack
 
 The 4-permutation S-box makes a saturated byte stay balanced (XOR-sum 0) through
-the byte-oriented round function. Measured integral survival depth
-(`sphinx_fast.py` style tests):
+the byte-oriented round function. Because `R0,R1` are **key-independent**, key
+recovery reduces to: recover only the **output whitening `W2`** (→ the whole key,
+since `k0=rol(W2_lo,2)`, `k1=rol(W2_hi,2)`), partially **invert the tail rounds
+of `R1`** (no key in the rounds themselves, only `W2` at the very end), and keep
+the guess for which the integral balance still holds.
 
-| order (chosen-plaintexts) | balanced byte survives through round |
-|---|---|
-| 1 (2^8)  | 4  |
-| 2 (2^16) | 6  |
-| 3 (2^24) | 10 |
-| 4 (2^32) | ~14 (extrapolated) |
+### Confirmed integral (validated, key-independent / structural)
 
-Because `R0,R1` are **key-independent**, key recovery reduces to: guess only the
-**output whitening `W2`** (→ the whole key, since `k0=rol(W2_lo,2)`,
-`k1=rol(W2_hi,2)`), invert the tail rounds of `R1` (no key needed), and verify
-the integral balance holds. The cost is set by how many ciphertext bytes feed
-the deepest balanced byte (measured dependency through `R1^{-1}`):
+An **order-3** integral — saturate state bytes `{3,2,6}` (= `lo[3],lo[2],hi[2]`),
+i.e. **2^24 chosen plaintexts** — gives, consistently across keys:
 
-| invert N tail rounds | min ciphertext-byte dependency |
-|---|---|
-| 2 | 2  |
-| 4 | 3  |
-| 6 | 5  |
+* **round 11 fully balanced** (all 8 state bytes XOR-sum to 0),
+* **round 12 hi-half balanced** (state bytes 4,5,6,7).
 
-* **order-4 path:** 2^32 data, balanced at round 14 → invert 2 rounds → recover
-  ~2 W2 bytes per balanced byte with ~2^16 partial-sums work, repeat → cheap key
-  recovery. **Best for a server attack would still be 2^32 queries — too many.**
-* **order-3 path:** 2^24 data (feasible), balanced at round 10 → invert 6 rounds
-  → ≥5 ciphertext bytes → ~2^40 partial-sums key recovery.
+So from a ciphertext you remove `W2` and invert **4** `R1` rounds (15,14,13,12)
+and require the round-12 hi bytes to be balanced. The balanced byte
+`b5 = byte1(hi)` of state-after-12 was traced to depend on exactly:
 
-Both are correct attacks; both need heavy compute (2^32 oracle queries, or ~2^40
-offline partial-sums) that is impractical in pure Python and was the intended
-"expensive but polynomial-ish" solve (the official solution is a Colab notebook).
+* ciphertext bytes `{C_lo0, C_lo2, C_hi0, C_hi2}` and
+* key bytes `{W2_lo0, W2_lo2, W2_hi0, W2_hi2}` (each XORed with the same-index
+  ciphertext byte: `Xi = C_i ⊕ W2_i`), in a **sequential S-box chain**
+  `X6 → X2 → X4 → X0` (rounds 15→14→13→12). All four key bytes affect the
+  *balance* (no linear cancellation), and the function does **not** factor, so a
+  cheap meet-in-the-middle is ruled out (verified).
+
+### Key-recovery cost
+
+Recovering those 4 key bytes is a classic **partial-sums / Walsh–Hadamard**
+problem over `GF(2)^32`:
+
+* partial-sums (Ferguson) ≈ **2^40** S-box evaluations (chain of 4 bytes),
+* or a Walsh–Hadamard correlation over `2^32` (needs ~32 GB for the int64 WHT).
+
+Both are routine in optimized C but exceed pure-Python on this 15 GB / 4-core
+box (numpy stage-A collapse is ~30 s, but the full 4-byte search is ~2^40).
+Repeat with a handful of integral sets / the other balanced bytes to pin all of
+`W2`, then `k0=rol(W2_lo,2)`, `k1=rol(W2_hi,2)`, and `D_k(target) = FLAG`.
+
+This is the intended "expensive but structural" solve (official solution is a
+Colab notebook). The cipher model and the integral distinguisher here are fully
+validated; only the final 2^40/2^32-memory search needs an optimized runner.
 
 ## 4. Files
 
