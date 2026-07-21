@@ -95,6 +95,31 @@ and require the round-12 hi bytes to be balanced. The balanced byte
   *balance* (no linear cancellation), and the function does **not** factor, so a
   cheap meet-in-the-middle is ruled out (verified).
 
+### Making it cheaper (query + compute analysis)
+
+**Queries — 1 set, not 4.** All four round-12 balanced bytes (4,5,6,7) depend on
+the *same* 4 key bytes `{W2_lo0, W2_lo2, W2_hi0, W2_hi2}` (verified, including
+every linear combination — byte 5 of `W2` cancels in the *balance* even though it
+affects the *value*). So a **single** order-3 set gives 4 balance equations = 32
+bits of constraint on those 32 unknown bits → the 4 bytes are unique from **one
+set (~16M CP)**, a 4× query reduction over the 4-set version in `solve.c`.
+
+**Compute — it's a clean XOR-correlation.** The balanced byte is
+`b5 = g(c ⊕ w)` where `g` is a *fixed, key-independent* 4-byte S-box chain and the
+4 key bytes are plain XOR offsets into 4 ciphertext bytes. Hence
+`balance(w) = ⊕_{c∈H} g(c⊕w)` is a **4-byte XOR-correlation**, computable for all
+2^32 keys at once with a **Fast Walsh–Hadamard transform** (2^32 work, needs a
+2^32·int32 ≈ 16 GB table). That is the intended sub-hour recovery on a machine
+with enough RAM/cores.
+
+**No sub-2^32 attack exists here.** The round-12 balance irreducibly mixes all 4
+key bytes: fixing `W2_hi2` does *not* leave a clean 3-byte correlation (the
+round-15 S-box output `s0,s2` becomes a per-ciphertext constant inside `g`), so it
+can't be split into cheaper transforms. On this 15 GB / 4-core sandbox the FWHT
+OOMs, so `solve.c` uses the memory-light **partial-sums fallback (2^40, ~90 min)**;
+on ≥16 GB with more cores it's the FWHT (~minutes) → the whole attack (queries +
+recovery) is well under an hour.
+
 ### Key-recovery: implemented and **SOLVED** (`solve.c`)
 
 Recovering those 4 key bytes is a **partial-sums** problem over the sequential
