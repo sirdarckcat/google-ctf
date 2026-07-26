@@ -140,6 +140,12 @@ footer{padding:40px 0 64px;color:var(--muted);font-size:14.5px}
 .bit.sel{background:var(--hot);border-color:var(--hot)}
 .avarow{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12px}
 .avarow .lab{color:var(--faint);width:5.6em;text-align:right}
+.sbghost{position:fixed;z-index:60;font-family:var(--mono);font-size:12px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;border-radius:4px;
+  background:var(--cool-bg);color:var(--cool);border:1px solid var(--cool);
+  pointer-events:none;box-shadow:0 2px 10px rgba(0,0,0,.28);
+  transition:transform .54s cubic-bezier(.34,.06,.24,1),opacity .54s ease-in}
+.bcell.xortgt{border-color:var(--cool);box-shadow:0 0 0 2px var(--cool-bg)}
 .rolo{display:flex;gap:14px;align-items:center;margin-top:4px;opacity:.32;
   transition:opacity .3s;flex-wrap:wrap}
 .rolo.live{opacity:1}
@@ -511,6 +517,39 @@ async function moveCells(map,arc){
   await raf();
   CELLS.forEach(c=>{c.style.transition="";});
 }
+/* send a ghost of each S-box output byte to the hi byte it lands on */
+async function flyXor(sbo){
+  if(RM()) return;
+  const chips=[...document.querySelectorAll("#roloout .obyte")];
+  if(chips.length<4) return;
+  const ghosts=[];
+  for(let k=0;k<4;k++){
+    const from=chips[k].getBoundingClientRect();
+    const to=CELLS[4+k].getBoundingClientRect();
+    const g=document.createElement("div");
+    g.className="sbghost";
+    g.textContent=hex((sbo>>>(8*(3-k)))&0xff,2);
+    g.style.cssText+=";left:"+from.left+"px;top:"+from.top+"px;width:"+from.width+
+      "px;height:"+from.height+"px";
+    document.body.appendChild(g);
+    CELLS[4+k].classList.add("xortgt");
+    ghosts.push({g,
+      dx:to.left+(to.width-from.width)/2-from.left,
+      dy:to.top+(to.height-from.height)/2-from.top});
+  }
+  await raf();
+  ghosts.forEach(({g,dx,dy},k)=>{
+    g.style.transitionDelay=(k*55)+"ms";
+    g.style.transform="translate("+dx+"px,"+dy+"px) scale(1.12)";
+    g.style.opacity="0";
+  });
+  await wait(560+3*55);
+  killGhosts();
+}
+function killGhosts(){
+  document.querySelectorAll(".sbghost").forEach(g=>g.remove());
+  CELLS.forEach(c=>c.classList.remove("xortgt"));
+}
 async function pulse(mask){
   if(RM())return;
   CELLS.forEach((c,i)=>{ if((mask>>>i)&1) c.classList.add("pulse"); });
@@ -609,6 +648,9 @@ async function renderStep(animate){
     if(!alive())return;
     setBytes(s.lo,s.hi); setMarks(s.chg,s.sb);
   } else if(s.anim==="xor"){
+    setMarks(0,s.sb);              /* keep showing the OLD hi while they travel */
+    await flyXor(s.sbo);
+    if(!alive())return;
     setBytes(s.lo,s.hi); setMarks(s.chg,s.sb);
     await pulse(0xf0);
     if(!alive())return;
@@ -621,6 +663,7 @@ async function renderStep(animate){
 }
 function settle(){
   GEN++;                       /* orphan any in-flight animation */
+  killGhosts();
   CELLS.forEach(c=>{c.style.transition="none";c.style.transform="";c.style.zIndex="";
     c.classList.remove("pulse");});
   const s=STEPS[SI]; if(s){ setBytes(s.lo,s.hi); setMarks(s.chg,s.sb); }
