@@ -150,6 +150,24 @@ EXPORT void substep_trace(u32 lo,u32 hi,u32 k0,u32 k1){
     OUT[6]=lo; OUT[7]=hi;                           /* before final whitening */
 }
 
+/* ---- sweep every one-byte difference, looking for a cancellation ---- */
+static u32 SWEEP[256];
+EXPORT u32* sweep_ptr(void){return SWEEP;}
+EXPORT void sweep_delta(u32 lo,u32 hi,u32 k0,u32 k1,u32 bp){
+    u32 i1[16],i2[16],a[16],b[16];
+    trace16(lo,hi,k0,k1,i1,a,b);
+    u32 sh=8*(3-(bp&3));
+    SWEEP[0]=0;
+    for(u32 d=1;d<256;d++){
+        u32 l2=lo,h2=hi;
+        if(bp<4) l2^=d<<sh; else h2^=d<<sh;
+        trace16(l2,h2,k0,k1,i2,a,b);
+        u32 m=0;
+        for(int r=0;r<16;r++) if(i1[r]==i2[r]) m|=(1u<<r);
+        SWEEP[d]=m;                 /* bit r set = round r inactive for this delta */
+    }
+}
+
 /* ---- avalanche: flip one input bit, watch the damage spread ---- */
 static u32 AVA[17*3];
 EXPORT u32* ava_ptr(void){return AVA;}
