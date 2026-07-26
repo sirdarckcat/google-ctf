@@ -74,8 +74,12 @@ table.grid th{color:var(--faint);font-weight:500;font-size:10.5px;letter-spacing
 table.grid td{padding:2px 4px;text-align:center;white-space:nowrap}
 td.rnd{color:var(--faint);text-align:right;padding-right:9px;width:1%}
 .by{display:inline-block;width:2.05em;padding:2px 0;border-radius:3px;
-  background:var(--dead-bg);color:var(--dead);transition:background .25s,color .25s}
+  background:var(--cool-bg);color:var(--cool);transition:background .25s,color .25s}
 .by.on{background:var(--hot-bg);color:var(--hot);font-weight:600}
+td.sbcol{position:relative}
+td.sbcol .by{box-shadow:0 0 0 1px var(--muted)}
+th.sbcol{color:var(--text)}
+.eqcol{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .chip{display:inline-block;font-size:10.5px;letter-spacing:.09em;padding:2px 7px;
   border-radius:99px;text-transform:uppercase;font-weight:600}
 .chip.act{background:var(--hot-bg);color:var(--hot)}
@@ -302,6 +306,10 @@ lo, hi = hi, lo               <em>← swap the halves</em></div>
   <p>Each round the S-box is either <b>active</b> (the byte feeding it differs, so it injects an
   unpredictable difference) or <b>inactive</b> (that byte is identical, so it contributes nothing
   and the difference sails through untouched). The whole game is keeping S-boxes inactive.</p>
+  <p><b>Only one byte decides it.</b> The S-box always reads <b>state byte 3</b> — the boxed column
+  below. So a round is inactive precisely when <i>that one byte</i> is the same in both
+  encryptions, no matter how much the rest of the row is changing. The table shows both actual
+  values and their XOR, so you can see it rather than take it on trust.</p>
 </div>
 <div class="bleed"><div class="panel">
   <div class="panel-title"><span>Difference trail — 16 rounds</span><span class="kbd">change the byte and watch</span></div>
@@ -312,10 +320,11 @@ lo, hi = hi, lo               <em>← swap the halves</em></div>
     <div class="ctrl"><label for="dv">value</label><input type="range" id="dv" min="1" max="255" value="64"><span id="dvl" class="kbd">0x40</span></div>
   </div>
   <div class="scroll"><table class="grid" id="dtab"></table></div>
-  <div class="legend"><span><b class="by on" style="width:auto;padding:2px 6px">nonzero</b> byte differs</span>
-    <span><b class="by" style="width:auto;padding:2px 6px">00</b> byte identical</span>
-    <span><b class="chip act">active</b> S-box sees a difference</span>
-    <span><b class="chip ina">inactive</b> free round</span></div>
+  <div class="legend"><span><b class="by" style="width:auto;padding:2px 6px">00</b> identical in both runs</span>
+    <span><b class="by on" style="width:auto;padding:2px 6px">nonzero</b> differs</span>
+    <span><b class="by" style="width:auto;padding:2px 6px;box-shadow:0 0 0 1px var(--muted)">3</b> the byte the S-box reads</span>
+    <span><b class="chip ina">inactive</b> free round</span>
+    <span><b class="chip act">active</b> difference injected</span></div>
 </div></div>
 <div class="wrap">
   <p style="margin-top:22px">Put the difference in <b>byte 6</b> and it rides <b>seven rounds
@@ -830,17 +839,25 @@ function doTrail(){
   if(bp<4) l2=(pl^(dv<<sh))>>>0; else h2=(ph^(dv<<sh))>>>0;
   E.trace_pair(pl,ph,l2,h2,k0,k1);
   const t=E.trace_ptr()>>>2;
-  let html="<tr><th>rnd</th><th>S-box</th><th>in Δ</th><th colspan='8'>state difference (8 bytes)</th></tr>";
-  let firstActive=-1;
+  let html="<tr><th>rnd</th><th>S-box</th><th colspan='3'>byte the S-box reads</th>"+
+    "<th></th><th>0</th><th>1</th><th>2</th><th class='sbcol'>3</th>"+
+    "<th>4</th><th>5</th><th>6</th><th>7</th></tr>"+
+    "<tr><th></th><th></th><th>run A</th><th>run B</th><th>A⊕B</th>"+
+    "<th colspan='9' style='text-align:left;padding-left:9px'>state difference, byte by byte</th></tr>";
   for(let r=0;r<16;r++){
     const i1=M32[t+r*4],i2=M32[t+r*4+1],dl=M32[t+r*4+2],dh=M32[t+r*4+3];
-    const act=i1!==i2; if(act&&firstActive<0)firstActive=r;
+    const act=i1!==i2;
     let cells="";
     for(let i=0;i<8;i++){const w=i<4?dl:dh;const b=(w>>>(8*(3-(i&3))))&0xff;
-      cells+="<td><span class='by"+(b?" on":"")+"'>"+hex(b,2)+"</span></td>";}
-    html+="<tr style='transition:opacity .3s'><td class='rnd'>"+r+"</td>"+
+      cells+="<td"+(i===3?" class='sbcol'":"")+"><span class='by"+(b?" on":"")+"'>"+
+        hex(b,2)+"</span></td>";}
+    const eq=act?"var(--hot)":"var(--cool)";
+    html+="<tr><td class='rnd'>"+r+"</td>"+
       "<td><span class='chip "+(act?"act":"ina")+"'>"+(act?"active":"inactive")+"</span></td>"+
-      "<td style='color:var(--"+(act?"hot":"faint")+")'>"+hex(i1^i2,2)+"</td>"+cells+"</tr>";
+      "<td class='eqcol' style='color:"+eq+"'>"+hex(i1,2)+"</td>"+
+      "<td class='eqcol' style='color:"+eq+"'>"+hex(i2,2)+"</td>"+
+      "<td class='eqcol' style='color:"+eq+";font-weight:700'>"+hex(i1^i2,2)+"</td>"+
+      "<td style='width:12px'></td>"+cells+"</tr>";
   }
   $("#dtab").innerHTML=html;
 }
