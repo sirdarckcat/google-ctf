@@ -114,7 +114,10 @@ footer{padding:40px 0 64px;color:var(--muted);font-size:14.5px}
 .cells{display:flex;gap:4px}
 .bcell{font-family:var(--mono);font-size:15px;font-weight:600;width:2.5em;text-align:center;
   padding:9px 0;border-radius:5px;background:var(--sunk);border:1px solid var(--line);
-  color:var(--text);transition:background .3s,color .3s,border-color .3s,transform .3s}
+  color:var(--text);position:relative;
+  transition:background .3s,color .3s,border-color .3s}
+.bcell.pulse{animation:pulse .5s ease-out}
+@keyframes pulse{0%{transform:scale(1)}38%{transform:scale(1.17)}100%{transform:scale(1)}}
 .bcell.chg{background:var(--hot-bg);border-color:var(--hot-line);color:var(--hot)}
 .bcell.sbin{background:var(--cool-bg);border-color:var(--cool);color:var(--cool)}
 .bcell .ix{display:block;font-size:9px;font-weight:400;color:var(--faint);letter-spacing:.06em}
@@ -137,6 +140,27 @@ footer{padding:40px 0 64px;color:var(--muted);font-size:14.5px}
 .bit.sel{background:var(--hot);border-color:var(--hot)}
 .avarow{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12px}
 .avarow .lab{color:var(--faint);width:5.6em;text-align:right}
+.rolo{display:flex;gap:14px;align-items:center;margin-top:4px;opacity:.32;
+  transition:opacity .3s;flex-wrap:wrap}
+.rolo.live{opacity:1}
+.rolo-win{position:relative;height:108px;width:224px;overflow:hidden;border-radius:6px;
+  border:1px solid var(--line);background:var(--sunk)}
+.rolo-list{position:absolute;left:0;right:0;top:0;will-change:transform}
+.rolo-row{height:18px;line-height:18px;font-family:var(--mono);font-size:11.5px;
+  color:var(--faint);padding:0 9px;white-space:nowrap}
+.rolo-row.hit{color:var(--cool);font-weight:700}
+.rolo-win::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:2;
+  background:linear-gradient(180deg,var(--sunk) 0%,transparent 24%,transparent 76%,var(--sunk) 100%)}
+.rolo-band{position:absolute;left:0;right:0;top:45px;height:18px;
+  border-top:1px solid var(--cool);border-bottom:1px solid var(--cool);
+  background:var(--cool-bg);opacity:.4;pointer-events:none}
+.rolo-out{font-family:var(--mono);font-size:12px;color:var(--muted);line-height:1.5}
+.rolo-out b{color:var(--cool);font-weight:700;font-size:14px}
+.obytes{display:flex;gap:4px;margin-top:5px}
+.obyte{font-family:var(--mono);font-size:12px;font-weight:600;width:2.3em;text-align:center;
+  padding:4px 0;border-radius:4px;background:var(--cool-bg);color:var(--cool);
+  border:1px solid var(--cool);opacity:.34;transition:opacity .3s}
+.rolo.live .obyte{opacity:1}
 .avatrack{position:relative;flex:1;max-width:360px;height:9px}
 .avabar{height:9px;border-radius:2px;background:var(--hot);min-width:2px;transition:width .3s}
 .avabar.one{background:var(--cool)}
@@ -175,6 +199,11 @@ lo, hi = hi, lo               <em>← swap the halves</em></div>
     <div class="bytes">
       <div class="half"><div class="half-lab">lo &nbsp;bytes 0–3</div><div class="cells" id="cl"></div></div>
       <div class="half"><div class="half-lab">hi &nbsp;bytes 4–7</div><div class="cells" id="ch"></div></div>
+    </div>
+    <div class="rolo" id="rolo">
+      <div class="rolo-win"><div class="rolo-list" id="rololist"></div><div class="rolo-band"></div></div>
+      <div class="rolo-out" id="roloout">the S-box is a fixed table of 256 entries.<br>
+        one byte goes in, four bytes come out.</div>
     </div>
     <div class="prog"><i id="prog" style="width:0%"></i></div>
     <div class="opline" id="opl">—</div>
@@ -434,53 +463,185 @@ function doEnc(){
 
 
 /* ---------- 01a the round machine ---------- */
-let STEPS=[], SI=0, PLAY=null;
+let STEPS=[], SI=0, PLAY=null, CELLS=[], BUSY=false, GEN=0;
+const RM=()=>matchMedia("(prefers-reduced-motion:reduce)").matches;
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const raf=()=>new Promise(r=>requestAnimationFrame(()=>r()));
+
+function buildCells(){
+  CELLS=[];
+  for(const [host,base] of [[$("#cl"),0],[$("#ch"),4]]){
+    host.innerHTML="";
+    for(let k=0;k<4;k++){
+      const d=document.createElement("div");
+      d.className="bcell";
+      d.innerHTML="<span class='v'>00</span><span class='ix'>"+(base+k)+"</span>";
+      host.appendChild(d); CELLS.push(d);
+    }
+  }
+}
+function setBytes(lo,hi){
+  for(let i=0;i<8;i++){
+    const w=i<4?lo:hi, v=(w>>>(8*(3-(i&3))))&0xff;
+    CELLS[i].querySelector(".v").textContent=hex(v,2);
+  }
+}
+function setMarks(chg,sb){
+  CELLS.forEach((c,i)=>{
+    c.classList.toggle("sbin", i===sb);
+    c.classList.toggle("chg", i!==sb && !!((chg>>>i)&1));
+  });
+}
+/* move the values in slots to new slots, animating along the way */
+async function moveCells(map,arc){
+  if(RM()){return;}
+  const r=CELLS.map(c=>c.getBoundingClientRect());
+  let moved=false;
+  CELLS.forEach((c,i)=>{
+    const d=map[i]; if(d===undefined||d===i) return;
+    moved=true;
+    const dx=r[d].left-r[i].left, dy=arc?arc(i,d):0;
+    c.style.transition="transform .46s cubic-bezier(.45,.02,.25,1)";
+    c.style.transform="translate("+dx+"px,"+dy+"px)";
+    c.style.zIndex="3";
+  });
+  if(!moved) return;
+  await wait(500);
+  CELLS.forEach(c=>{c.style.transition="none";c.style.transform="";c.style.zIndex="";});
+  await raf();
+  CELLS.forEach(c=>{c.style.transition="";});
+}
+async function pulse(mask){
+  if(RM())return;
+  CELLS.forEach((c,i)=>{ if((mask>>>i)&1) c.classList.add("pulse"); });
+  await wait(500);
+  CELLS.forEach(c=>c.classList.remove("pulse"));
+}
+
+/* ---- the S-box rolodex ---- */
+let ROLO_BUILT=-1;
+function buildRolo(which){
+  if(ROLO_BUILT===which) return;
+  ROLO_BUILT=which;
+  const p=(which? E.sb1_ptr():E.sb0_ptr())>>>2;
+  let h="";
+  for(let i=0;i<256;i++)
+    h+="<div class='rolo-row' data-i='"+i+"'>SB"+which+"["+hex(i,2)+"] = "+hex(M32[p+i],8)+"</div>";
+  $("#rololist").innerHTML=h;
+}
+function spinRolo(which,idx,animate){
+  buildRolo(which);
+  const list=$("#rololist");
+  list.style.transition=(animate&&!RM())?"transform .62s cubic-bezier(.2,.7,.25,1)":"none";
+  list.style.transform="translateY("+(45-idx*18)+"px)";
+  list.querySelectorAll(".hit").forEach(e=>e.classList.remove("hit"));
+  const row=list.querySelector("[data-i='"+idx+"']"); if(row) row.classList.add("hit");
+}
+function roloOut(which,idx,val,live){
+  $("#rolo").classList.toggle("live",!!live);
+  let ob="";
+  for(let k=0;k<4;k++) ob+="<div class='obyte'>"+hex((val>>>(8*(3-k)))&0xff,2)+"</div>";
+  $("#roloout").innerHTML="index byte <b>"+hex(idx,2)+"</b> selects one row of 256<div class='obytes'>"+
+    ob+"</div><span style='color:var(--faint)'>these four bytes are what gets XORed into hi</span>";
+}
+
 function buildSteps(){
   const [pl,ph]=parseHex16($("#ptx").value), [k0,k1]=keyWords();
   E.substep_trace(pl,ph,k0,k1);
   const o=E.out_ptr()>>>2, S=E.sub_ptr()>>>2;
   const st=[];
-  const push=(lo,hi,tag,text,chg,sb)=>st.push({lo,hi,tag,text,chg,sb});
-  push(M32[o],M32[o+1],"input","the plaintext, before anything happens",0,-1);
-  push(M32[o+2],M32[o+3],"key","<em>⊕ key</em> — the first of three whitening steps. XOR only; nothing is mixed yet.",255,-1);
+  const push=x=>st.push(x);
+  push({lo:M32[o],hi:M32[o+1],tag:"input",anim:null,chg:0,sb:-1,
+    text:"the plaintext, before anything happens"});
+  push({lo:M32[o+2],hi:M32[o+3],tag:"key",anim:"key",chg:255,sb:-1,
+    text:"<em>⊕ key</em> — the first of three whitening steps. XOR only; nothing is mixed yet."});
   for(let r=0;r<16;r++){
-    const b=S+r*10;
-    if(r===8) push(M32[b],M32[b+1],"key","<em>⊕ key</em> — the middle whitening, between the two groups of eight rounds. A new S-box takes over here.",255,-1);
-    push(M32[b],M32[b+1],"round "+r,
-      "the last byte of <code>lo</code> is <em>"+hex(M32[b+2],2)+"</em> — the only byte the S-box will see",0,3);
-    push(M32[b+4],M32[b+5],"round "+r,
-      "<em>SB["+hex(M32[b+2],2)+"] = "+hex(M32[b+3],8)+"</em> is XORed into <code>hi</code>, changing all four of its bytes",0xf0,3);
-    push(M32[b+6],M32[b+7],"round "+r,
-      "<code>lo</code> rotates right by <em>"+[16,16,8,8,16,16,24,24][r%8]+"</em> bits — its bytes slide, none are lost",0x0f,-1);
-    push(M32[b+8],M32[b+9],"round "+r,
-      "the halves <em>swap</em>. What was mixed becomes what gets read next.",0xff,-1);
+    const b=S+r*10, oc=r<8?0:1, rot=[16,16,8,8,16,16,24,24][r%8];
+    if(r===8) push({lo:M32[b],hi:M32[b+1],tag:"key",anim:"key",chg:255,sb:-1,
+      text:"<em>⊕ key</em> — the middle whitening. A second S-box takes over from here."});
+    push({lo:M32[b],hi:M32[b+1],tag:"round "+r,anim:"sbox",chg:0,sb:3,oc:oc,
+      sbi:M32[b+2],sbo:M32[b+3],
+      text:"the last byte of <code>lo</code> is <em>"+hex(M32[b+2],2)+
+        "</em> — the S-box spins to that row"});
+    push({lo:M32[b+4],hi:M32[b+5],tag:"round "+r,anim:"xor",chg:0xf0,sb:3,oc:oc,
+      sbi:M32[b+2],sbo:M32[b+3],
+      text:"<em>SB["+hex(M32[b+2],2)+"] = "+hex(M32[b+3],8)+
+        "</em> lands on <code>hi</code> — all four bytes change"});
+    push({lo:M32[b+6],hi:M32[b+7],tag:"round "+r,anim:"rot",rot:rot,chg:0x0f,sb:-1,oc:oc,
+      sbi:M32[b+2],sbo:M32[b+3],
+      text:"<code>lo</code> rotates right by <em>"+rot+"</em> bits — its bytes slide "+
+        (rot/8)+" place"+(rot===8?"":"s")+", wrapping around"});
+    push({lo:M32[b+8],hi:M32[b+9],tag:"round "+r,anim:"swap",chg:0xff,sb:-1,oc:oc,
+      sbi:M32[b+2],sbo:M32[b+3],
+      text:"the halves <em>swap</em> — what was just mixed becomes what gets read next"});
   }
-  push(M32[o+4],M32[o+5],"key","<em>⊕ key</em> — the final whitening. This is the ciphertext.",255,-1);
+  push({lo:M32[o+4],hi:M32[o+5],tag:"key",anim:"key",chg:255,sb:-1,
+    text:"<em>⊕ key</em> — the final whitening. This is the ciphertext."});
   STEPS=st;
 }
-function drawState(lo,hi,chg,sb){
-  let a="",b="";
-  for(let i=0;i<8;i++){
-    const w=i<4?lo:hi, v=(w>>>(8*(3-(i&3))))&0xff;
-    const cls=(i===sb?" sbin":((chg>>>i)&1?" chg":""));
-    const cell="<div class='bcell"+cls+"'>"+hex(v,2)+"<span class='ix'>"+i+"</span></div>";
-    if(i<4)a+=cell; else b+=cell;
-  }
-  $("#cl").innerHTML=a; $("#ch").innerHTML=b;
-}
-function renderStep(){
-  const s=STEPS[SI];
-  drawState(s.lo,s.hi,s.chg,s.sb);
+
+async function renderStep(animate){
+  const s=STEPS[SI], prev=STEPS[SI-1];
   $("#opl").innerHTML="<span class='tag'>"+s.tag+"</span> <span>"+s.text+"</span>";
   $("#mpos").textContent="step "+SI+" / "+(STEPS.length-1);
   $("#prog").style.width=(SI/(STEPS.length-1)*100)+"%";
-  $("#mround").textContent=s.tag==="key"?"whitening":(s.tag==="input"?"":"");
+
+  const live=(s.anim==="sbox"||s.anim==="xor");
+  if(s.sbi!==undefined) { spinRolo(s.oc||0, s.sbi, animate && s.anim==="sbox");
+    roloOut(s.oc||0, s.sbi, s.sbo, live); }
+  else { $("#rolo").classList.remove("live"); }
+
+  if(!animate||RM()||!prev){ setBytes(s.lo,s.hi); setMarks(s.chg,s.sb); return; }
+
+  const gen=++GEN; BUSY=true;
+  const alive=()=>gen===GEN;
+  if(s.anim==="rot"){
+    const sft=(s.rot/8)|0, map={};
+    for(let i=0;i<4;i++) map[i]=(i+sft)%4;
+    setMarks(0,-1);
+    await moveCells(map,(i,d)=>(d<i?30:0));
+    if(!alive())return;
+    setBytes(s.lo,s.hi); setMarks(s.chg,s.sb);
+  } else if(s.anim==="swap"){
+    const map={}; for(let i=0;i<4;i++){map[i]=i+4; map[i+4]=i;}
+    setMarks(0,-1);
+    await moveCells(map,(i)=>(i<4?-34:34));
+    if(!alive())return;
+    setBytes(s.lo,s.hi); setMarks(s.chg,s.sb);
+  } else if(s.anim==="xor"){
+    setBytes(s.lo,s.hi); setMarks(s.chg,s.sb);
+    await pulse(0xf0);
+    if(!alive())return;
+  } else {
+    setBytes(s.lo,s.hi); setMarks(s.chg,s.sb);
+    if(s.anim==="key") await pulse(0xff);
+    if(!alive())return;
+  }
+  if(alive()) BUSY=false;
 }
-function step(d){ SI=Math.max(0,Math.min(STEPS.length-1,SI+d)); renderStep(); }
+function settle(){
+  GEN++;                       /* orphan any in-flight animation */
+  CELLS.forEach(c=>{c.style.transition="none";c.style.transform="";c.style.zIndex="";
+    c.classList.remove("pulse");});
+  const s=STEPS[SI]; if(s){ setBytes(s.lo,s.hi); setMarks(s.chg,s.sb); }
+  void CELLS[0].offsetWidth;   /* flush, so the next transition starts clean */
+  CELLS.forEach(c=>{c.style.transition="";});
+  BUSY=false;
+}
+async function step(d){
+  if(BUSY) settle();           /* an impatient click skips ahead, never gets dropped */
+  const n=Math.max(0,Math.min(STEPS.length-1,SI+d));
+  if(n===SI) return;
+  const fwd=(n===SI+1);
+  SI=n; await renderStep(fwd);
+}
 function togglePlay(){
   if(PLAY){clearInterval(PLAY);PLAY=null;$("#bplay").textContent="▶ play";return;}
   $("#bplay").textContent="❚❚ pause";
-  PLAY=setInterval(()=>{ if(SI>=STEPS.length-1){clearInterval(PLAY);PLAY=null;$("#bplay").textContent="▶ play";return;} step(1); },520);
+  PLAY=setInterval(async()=>{
+    if(SI>=STEPS.length-1){clearInterval(PLAY);PLAY=null;$("#bplay").textContent="▶ play";return;}
+    await step(1);
+  }, RM()?260:620);
 }
 
 /* ---------- 01b avalanche ---------- */
@@ -642,15 +803,16 @@ function doRecover(){
 /* ---------- boot ---------- */
 WebAssembly.instantiate(b64ToBytes(WASM_B64),{}).then(({instance})=>{
   E=instance.exports; M32=new Uint32Array(E.memory.buffer); M8=new Uint8Array(E.memory.buffer);
-  doEnc(); buildSteps(); SI=0; renderStep(); drawBitGrid(); doAva();
+  doEnc(); buildCells(); buildSteps(); SI=0; renderStep(false); drawBitGrid(); doAva();
   doTrail(); doIntegral(); newKey();
   $("#bnext").onclick=()=>step(1); $("#bprev").onclick=()=>step(-1);
   $("#bplay").onclick=togglePlay;
-  $("#brst").onclick=()=>{if(PLAY){clearInterval(PLAY);PLAY=null;$("#bplay").textContent="▶ play";}SI=0;renderStep();};
+  $("#brst").onclick=()=>{if(PLAY){clearInterval(PLAY);PLAY=null;$("#bplay").textContent="▶ play";}
+    settle();SI=0;renderStep(false);};
   $("#zdb").innerHTML="verified live: <b>"+E.zero_diff_bytes(1)+
     "</b> of 65,280 cases produce even one zero byte.";
   ["#ptx","#kx"].forEach(s=>$(s).addEventListener("input",()=>{
-    doEnc();buildSteps();SI=Math.min(SI,STEPS.length-1);renderStep();doAva();doTrail();doIntegral();}));
+    doEnc();buildSteps();SI=Math.min(SI,STEPS.length-1);renderStep(false);doAva();doTrail();doIntegral();}));
   ["#bp","#dv"].forEach(s=>$(s).addEventListener("input",doTrail));
   ["#s1","#s2"].forEach(s=>$(s).addEventListener("change",doIntegral));
   $("#runm").onclick=doMeasure;
