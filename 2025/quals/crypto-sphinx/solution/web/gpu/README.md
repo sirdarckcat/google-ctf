@@ -1,7 +1,16 @@
 # WebGPU feasibility probe
 
-`webgpu-bench.html` is a single self-contained file (no network, no dependencies).
-Open it in a browser, let it run, press **Copy all output**.
+Two builds of the same probe, both self-contained (no network, no dependencies):
+
+* `webgpu-bench.html` — a complete standalone document, for opening from disk.
+* `gpu-bench-artifact.html` — the same page with the document wrapper stripped, for
+  publishing as a hosted artifact. Deployed at
+  <https://claude.ai/code/artifact/7af5cd78-5f92-489f-b151-771e4f9bddf2>, which is
+  the easier route on a phone: a URL opens in Chrome proper, whereas a downloaded
+  file tends to land in an in-app WebView where neither WebGPU nor wasm is
+  available.
+
+Open either, let it run, press **Copy all output**.
 
 ## What it measures
 
