@@ -8,6 +8,11 @@ flag (`target = E_k(FLAG)`), and wins only when you submit `inp` with
 task is **key recovery / single-block decryption** of a chosen-plaintext
 encryption oracle.
 
+> **Prefer to click rather than read?** `web/` is an **interactive browser lab** — the
+> cipher, difference trails, live probability measurement, integral label propagation and a
+> working key recovery, all running in WebAssembly. Open `web/index.html`; rebuild with
+> `sh web/build.sh` (needs clang with the wasm32 target; no emscripten).
+>
 > **New to cryptanalysis?** Two hands-on tutorials use this challenge as a lab,
 > both with runnable playgrounds, measured experiments and exercises, and neither
 > assuming any crypto background:
@@ -375,6 +380,13 @@ the same expensive-but-structural integral attack.)
   tutorial and playground.** `python3 difflab.py` self-tests; the tutorial's
   experiments are all one-liners against it. `difflab.py` is bit-exact vs
   `sphinx_model.py` (3000 random key/block pairs).
+* **`web/` — interactive WebAssembly lab.** `lab.c` (14 KB module: cipher, difference
+  tracing, measurement, integral labelling, reduced-round key recovery),
+  `fwht_kernel.c` (the 2^24 Walsh–Hadamard attack kernel, benchmarked separately),
+  `build.sh`, and a self-contained `index.html` with the module inlined as base64.
+  Measured in Chromium: 2·10^6 difference pairs in ~240 ms versus 4.9 s for the same
+  measurement in NumPy (20x); on the FWHT kernel WASM+SIMD is ~5x NumPy and within
+  1.6x of native C.
 * **`INTEGRAL.md` + `intlab.py` — hands-on integral (Square) cryptanalysis
   tutorial and playground.** Symbolic `A`/`C`/`B`/`?` propagation, empirical
   verification, and a four-rung ladder of working attacks:

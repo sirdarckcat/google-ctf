@@ -1,0 +1,483 @@
+<title>Cryptanalysis Lab — watch a cipher break</title>
+<style>
+:root{
+  --bg:#FAF9F7; --panel:#FFFFFF; --sunk:#F2F1ED; --line:#E2DFD8;
+  --text:#141A21; --muted:#5B6874; --faint:#8B949E;
+  --hot:#A65F0B; --cool:#12756A; --mid:#3F5FA6; --dead:#98A0A8;
+  --hot-bg:#FAEBD6; --cool-bg:#DFF0ED; --mid-bg:#E5EBF7; --dead-bg:#EDEFF1;
+  --hot-line:#E4A14A;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"DejaVu Sans Mono",monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0F1419; --panel:#161C23; --sunk:#11171D; --line:#252D36;
+  --text:#D9E0E8; --muted:#8A96A3; --faint:#5F6B77;
+  --hot:#E89B3C; --cool:#3FA79A; --mid:#7A9BD8; --dead:#59636F;
+  --hot-bg:#2A1F10; --cool-bg:#0F2422; --mid-bg:#151E30; --dead-bg:#1A1F25;
+  --hot-line:#8A5E1E;
+}}
+:root[data-theme="dark"]{
+  --bg:#0F1419; --panel:#161C23; --sunk:#11171D; --line:#252D36;
+  --text:#D9E0E8; --muted:#8A96A3; --faint:#5F6B77;
+  --hot:#E89B3C; --cool:#3FA79A; --mid:#7A9BD8; --dead:#59636F;
+  --hot-bg:#2A1F10; --cool-bg:#0F2422; --mid-bg:#151E30; --dead-bg:#1A1F25;
+  --hot-line:#8A5E1E;
+}
+:root[data-theme="light"]{
+  --bg:#FAF9F7; --panel:#FFFFFF; --sunk:#F2F1ED; --line:#E2DFD8;
+  --text:#141A21; --muted:#5B6874; --faint:#8B949E;
+  --hot:#A65F0B; --cool:#12756A; --mid:#3F5FA6; --dead:#98A0A8;
+  --hot-bg:#FAEBD6; --cool-bg:#DFF0ED; --mid-bg:#E5EBF7; --dead-bg:#EDEFF1;
+  --hot-line:#E4A14A;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+  font-size:16.5px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.wrap{max-width:70ch;margin:0 auto;padding:0 22px}
+.bleed{max-width:1080px;margin-left:auto;margin-right:auto;padding:0 22px}
+h1,h2,h3{font-family:var(--mono);text-wrap:balance;letter-spacing:-.02em;line-height:1.15;margin:0}
+h1{font-size:clamp(30px,5.4vw,52px);font-weight:700}
+h2{font-size:clamp(21px,3vw,28px);font-weight:700;margin-bottom:6px}
+h3{font-size:16px;font-weight:700;margin-bottom:4px}
+p{margin:0 0 1em}
+a{color:var(--hot)}
+code{font-family:var(--mono);font-size:.9em;background:var(--sunk);
+  border:1px solid var(--line);border-radius:3px;padding:.08em .34em}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--faint);margin-bottom:10px}
+.lede{font-size:19px;color:var(--muted);text-wrap:pretty}
+header.top{padding:56px 0 34px;border-bottom:1px solid var(--line)}
+section{padding:44px 0;border-bottom:1px solid var(--line)}
+.num{font-family:var(--mono);color:var(--hot);font-size:13px;letter-spacing:.1em}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:16px;margin:20px 0}
+.panel-title{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--faint);margin-bottom:12px;display:flex;justify-content:space-between;
+  align-items:center;gap:12px;flex-wrap:wrap}
+.ctrls{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-bottom:14px;
+  font-family:var(--mono);font-size:12.5px}
+.ctrl{display:flex;align-items:center;gap:7px}
+label{color:var(--muted);font-size:12px;letter-spacing:.04em}
+select,input[type=text]{font-family:var(--mono);font-size:12.5px;background:var(--sunk);
+  color:var(--text);border:1px solid var(--line);border-radius:5px;padding:5px 7px}
+input[type=range]{accent-color:var(--hot);width:120px}
+button{font-family:var(--mono);font-size:12.5px;font-weight:600;background:var(--hot);
+  color:var(--bg);border:0;border-radius:5px;padding:7px 13px;cursor:pointer;letter-spacing:.03em}
+button:hover{filter:brightness(1.09)}
+button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+.scroll{overflow-x:auto}
+table.grid{border-collapse:collapse;font-family:var(--mono);font-size:12.5px;
+  font-variant-numeric:tabular-nums;width:100%}
+table.grid th{color:var(--faint);font-weight:500;font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;text-align:center;padding:0 5px 8px;white-space:nowrap}
+table.grid td{padding:2px 4px;text-align:center;white-space:nowrap}
+td.rnd{color:var(--faint);text-align:right;padding-right:9px;width:1%}
+.by{display:inline-block;width:2.05em;padding:2px 0;border-radius:3px;
+  background:var(--dead-bg);color:var(--dead);transition:background .25s,color .25s}
+.by.on{background:var(--hot-bg);color:var(--hot);font-weight:600}
+.chip{display:inline-block;font-size:10.5px;letter-spacing:.09em;padding:2px 7px;
+  border-radius:99px;text-transform:uppercase;font-weight:600}
+.chip.act{background:var(--hot-bg);color:var(--hot)}
+.chip.ina{background:var(--cool-bg);color:var(--cool)}
+.lb{display:inline-block;width:2.05em;padding:3px 0;border-radius:3px;font-weight:700}
+.lb.A{background:var(--hot-bg);color:var(--hot)}
+.lb.C{background:var(--cool-bg);color:var(--cool)}
+.lb.B{background:var(--mid-bg);color:var(--mid)}
+.lb.Q{background:var(--dead-bg);color:var(--dead)}
+.row-dead td{opacity:.5}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11.5px;
+  color:var(--muted);margin-top:12px}
+.legend span b{font-weight:700}
+.out{font-family:var(--mono);font-size:12.5px;background:var(--sunk);border:1px solid var(--line);
+  border-radius:6px;padding:11px 13px;white-space:pre-wrap;color:var(--muted);
+  font-variant-numeric:tabular-nums;overflow-x:auto}
+.out em{color:var(--hot);font-style:normal;font-weight:600}
+.out .ok{color:var(--cool);font-weight:600}
+.bar{height:7px;background:var(--hot);border-radius:2px;min-width:1px}
+.bar.zero{background:var(--dead);opacity:.5}
+.bar.full{background:var(--cool)}
+.note{border-left:2px solid var(--hot-line);padding:2px 0 2px 15px;color:var(--muted);
+  margin:20px 0;font-size:15.5px}
+.kbd{font-family:var(--mono);font-size:11.5px;color:var(--faint)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:720px){.two{grid-template-columns:1fr}}
+footer{padding:40px 0 64px;color:var(--muted);font-size:14.5px}
+.tog{position:fixed;top:12px;right:12px;z-index:9;background:var(--panel);
+  border:1px solid var(--line);color:var(--muted);border-radius:6px;padding:6px 10px;font-size:11px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<button class="tog ghost" id="tog" aria-label="Toggle colour theme">theme</button>
+
+<header class="top"><div class="wrap">
+  <div class="eyebrow">Interactive laboratory · Khafre / GoogleCTF 2025 “sphinx”</div>
+  <h1>Watch a cipher break.</h1>
+  <p class="lede" style="margin-top:14px">Two techniques — <b>differential</b> and <b>integral</b>
+  cryptanalysis — run live in your browser against a real 16-round block cipher.
+  Every number on this page is computed as you read it, by a WebAssembly build of
+  the same code that recovers the key.</p>
+</div></header>
+
+<section><div class="wrap">
+  <div class="num">01</div><h2>The cipher, in one round</h2>
+  <p>Two 32-bit halves, <code>lo</code> and <code>hi</code>. Sixteen rounds. Each round looks up
+  <b>one byte</b> of <code>lo</code> in a fixed public table (an <b>S-box</b>), XORs the result into
+  <code>hi</code>, rotates, and swaps:</p>
+  <div class="out" style="margin-bottom:18px">hi = hi ⊕ SB[ lo &amp; 0xff ]     <em>← only ONE byte is looked up</em>
+lo = ror(lo, ROT[r])          ROT = 16,16,8,8,16,16,24,24
+lo, hi = hi, lo</div>
+  <p>The 64-bit key is XORed in only three times — before, between and after the two groups of
+  eight rounds. That single fact (“one byte per round”) is why you can follow an attack through
+  this cipher by eye.</p>
+</div>
+<div class="bleed"><div class="panel">
+  <div class="panel-title"><span>Encrypt</span><span class="kbd">live</span></div>
+  <div class="ctrls">
+    <div class="ctrl"><label for="ptx">plaintext</label><input type="text" id="ptx" value="0011223344556677" size="17" maxlength="16"></div>
+    <div class="ctrl"><label for="kx">key</label><input type="text" id="kx" value="cafebabecafebabe" size="17" maxlength="16"></div>
+  </div>
+  <div class="out" id="encout">…</div>
+</div></div>
+</section>
+
+<section><div class="wrap">
+  <div class="num">02</div><h2>Differential: follow a difference</h2>
+  <p>Take <b>two</b> plaintexts that differ in one byte. Because the key is only XORed in, it
+  <b>cancels</b> out of any difference — <code>(P⊕K)⊕(P'⊕K) = P⊕P'</code> — so a difference moves
+  through the cipher in a way you can predict <i>without knowing the key</i>.</p>
+  <p>Each round the S-box is either <b>active</b> (the byte feeding it differs, so it injects an
+  unpredictable difference) or <b>inactive</b> (that byte is identical, so it contributes nothing
+  and the difference sails through untouched). The whole game is keeping S-boxes inactive.</p>
+</div>
+<div class="bleed"><div class="panel">
+  <div class="panel-title"><span>Difference trail — 16 rounds</span><span class="kbd">change the byte and watch</span></div>
+  <div class="ctrls">
+    <div class="ctrl"><label for="bp">difference in plaintext byte</label>
+      <select id="bp"><option>0</option><option>1</option><option>2</option><option>3</option>
+      <option>4</option><option>5</option><option selected>6</option><option>7</option></select></div>
+    <div class="ctrl"><label for="dv">value</label><input type="range" id="dv" min="1" max="255" value="64"><span id="dvl" class="kbd">0x40</span></div>
+  </div>
+  <div class="scroll"><table class="grid" id="dtab"></table></div>
+  <div class="legend"><span><b class="by on" style="width:auto;padding:2px 6px">nonzero</b> byte differs</span>
+    <span><b class="by" style="width:auto;padding:2px 6px">00</b> byte identical</span>
+    <span><b class="chip act">active</b> S-box sees a difference</span>
+    <span><b class="chip ina">inactive</b> free round</span></div>
+</div></div>
+<div class="wrap">
+  <p style="margin-top:22px">Put the difference in <b>byte 6</b> and it rides <b>seven rounds
+  free</b> — a lone byte wandering around while every S-box stays inactive — then detonates at
+  round 7. Try byte 3: it is the lookup byte, so it is active immediately. Every position gives a
+  different number of free rounds, and byte 6 is the best there is.</p>
+  <div class="note">This is the single most valuable fact about this cipher, and
+  <b>both</b> attacks on this page are built on it.</div>
+</div>
+</section>
+
+<section><div class="wrap">
+  <div class="num">03</div><h2>Where the luck lives</h2>
+  <p>After round 7 the difference has spread. To keep going we need it to <b>cancel</b> — an S-box
+  output difference landing on a byte that already differs, the two XORing to zero and making a
+  later round inactive again. How often does that happen? Don't guess. Measure.</p>
+</div>
+<div class="bleed"><div class="panel">
+  <div class="panel-title"><span>P(S-box inactive) per round</span><span class="kbd" id="mstat">idle</span></div>
+  <div class="ctrls">
+    <div class="ctrl"><label for="tr">pairs</label>
+      <select id="tr"><option value="200000">200 thousand</option><option value="2000000" selected>2 million</option>
+      <option value="10000000">10 million</option></select></div>
+    <button id="runm">Measure</button>
+  </div>
+  <div class="scroll"><table class="grid" id="mtab"></table></div>
+</div></div>
+<div class="wrap">
+  <p>Three regimes, and the middle one is the interesting part:</p>
+  <p><b>Rounds 0–6 — always inactive.</b> The free ride. Not probability; certainty.</p>
+  <p><b>Rounds 7–9 — never inactive.</b> Exactly zero, however many pairs you run. Here the
+  difference has just landed in a half that had <i>no</i> difference, so cancelling would require
+  the S-box to output a <b>zero</b> difference byte. This S-box is built from four independent
+  byte permutations, so it never does — <span id="zdb">checking…</span></p>
+  <p><b>Rounds 10+ — about 1 in 256.</b> Now the difference lives in <i>both</i> halves, so
+  cancelling no longer needs a zero output difference; it just needs the S-box output byte to
+  <i>equal</i> the difference already sitting there. One byte matching one byte.</p>
+  <div class="note">The trap: “the S-box never outputs a zero difference” is true, and it does
+  <b>not</b> mean “differences can never cancel”. Cancellation happens against a
+  <b>nonzero</b> difference. Confusing the two makes you declare a cipher safe when it isn't —
+  a mistake made, and caught, while writing this.</div>
+  <p>The real attack asks for rounds 12 <b>and</b> 14 to be inactive: about
+  <code>1/256 × 1/256 ≈ 2⁻¹⁶</code>. So ~196,000 pairs buy you about three usable ones, and that is
+  where the attack's data cost comes from.</p>
+</div>
+</section>
+
+<section><div class="wrap">
+  <div class="num">04</div><h2>Integral: stop hoping, start proving</h2>
+  <p>Same structural fact, spent differently. Instead of two texts, take a whole <b>set</b>: one
+  byte running through all 256 values, everything else fixed. Now track four labels per byte —</p>
+  <div class="legend" style="margin:14px 0 18px;font-size:13px">
+    <span><b class="lb A">A</b> &nbsp;saturated — hits all 256 values</span>
+    <span><b class="lb C">C</b> &nbsp;constant</span>
+    <span><b class="lb B">B</b> &nbsp;balanced — XORs to zero</span>
+    <span><b class="lb Q">?</b> &nbsp;unknown</span>
+  </div>
+  <p>Two rules do all the work. <b>XOR is linear</b>, so balance survives it — but
+  <code>A ⊕ A = B</code>, saturation decays into mere balance. And <b>the S-box</b>: a constant in
+  gives a constant out, a saturated byte in gives saturated bytes out (it's a bijection) — but a
+  merely <i>balanced</i> byte in gives <b>nothing</b>, because a sum tells you nothing about
+  individual values and the S-box needs values.</p>
+</div>
+<div class="bleed"><div class="panel">
+  <div class="panel-title"><span>Integral propagation — measured, not predicted</span><span class="kbd" id="istat">…</span></div>
+  <div class="ctrls">
+    <div class="ctrl"><label for="s1">saturate byte</label>
+      <select id="s1"><option>0</option><option>1</option><option>2</option><option>3</option>
+      <option>4</option><option>5</option><option selected>6</option><option>7</option></select></div>
+    <div class="ctrl"><label for="s2">and byte</label>
+      <select id="s2"><option value="255" selected>— (256 texts)</option>
+      <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+      <option value="3">3</option><option value="4">4</option><option value="5">5</option>
+      <option value="7">7</option></select></div>
+  </div>
+  <div class="scroll"><table class="grid" id="itab"></table></div>
+</div></div>
+<div class="wrap">
+  <p style="margin-top:22px">Read it downward. A lone <b class="lb A">A</b> drifts for seven rounds
+  — the same free ride, now costing <i>no probability at all</i>. At round 7 it enters the S-box
+  and spreads. Then <code>A⊕A</code> collapses saturation into balance, and the moment a
+  <b class="lb B">B</b> is the byte feeding the S-box, everything downstream turns to
+  <b class="lb Q">?</b>.</p>
+  <p>Now add byte <b>2</b> as a second saturated byte (65,536 texts). The property reaches a round
+  deeper — and that extra round is exactly what the real key recovery needs. Of all 28 possible
+  pairs, only <code>{2,6}</code> gets there, because 6 and 2 are the two positions that take
+  longest to reach an S-box.</p>
+  <div class="note">Differential needs <code>2⁻¹⁶</code> luck and statistics. Integral needs none —
+  it is true for every key, every time. You pay in queries instead: a whole set, not a pair.</div>
+</div>
+</section>
+
+<section><div class="wrap">
+  <div class="num">05</div><h2>Take the key</h2>
+  <p>A property isn't a key. The bridge: <b>guess a little key, undo a little cipher, check whether
+  the property survives.</b> The rounds contain no key here — it lives only in the final whitening
+  — so once you guess those few bytes, running rounds backwards is public arithmetic.</p>
+  <p>Right guess ⇒ the bytes really are balanced, guaranteed. Wrong guess ⇒ balanced only by luck,
+  1 in 256 per byte checked. Below is the real thing, on a cipher shortened so the naive
+  “try every guess” fits in a browser tab.</p>
+</div>
+<div class="bleed"><div class="panel">
+  <div class="panel-title"><span>Integral key recovery</span><span class="kbd" id="rstat">idle</span></div>
+  <div class="ctrls">
+    <div class="ctrl"><label for="rr">second group of rounds</label>
+      <select id="rr"><option value="4" selected>4 (12 rounds total)</option>
+      <option value="5">5 (13 rounds total)</option></select></div>
+    <button id="runr">Recover the key</button>
+    <button id="newk" class="ghost">New random key</button>
+  </div>
+  <div class="out" id="rout">Press <em>Recover the key</em>. A fresh random key is generated and never shown to the attack.</div>
+</div></div>
+<div class="wrap">
+  <p style="margin-top:22px">Each extra round you unwind costs exactly <b>one more key byte</b> —
+  a factor of 256 — because only one byte feeds each S-box:</p>
+  <div class="scroll"><table class="grid" style="margin:14px 0">
+    <tr><th>rounds unwound</th><th>1</th><th>2</th><th>3</th><th>4</th></tr>
+    <tr><td class="rnd">key bytes</td><td>1</td><td>2</td><td>3</td><td>4</td></tr>
+    <tr><td class="rnd">guesses</td><td>2⁸</td><td>2¹⁶</td><td>2²⁴</td><td>2³²</td></tr>
+    <tr><td class="rnd">feasible by enumeration</td><td style="color:var(--cool)">yes</td>
+      <td style="color:var(--cool)">yes</td><td style="color:var(--hot)">slow</td>
+      <td style="color:var(--dead)">no</td></tr>
+  </table></div>
+  <p>The full 16-round cipher needs all four bytes — <code>2³²</code>, far too many to enumerate.
+  The fix isn't a bigger computer, it's a better search: the balance test is an
+  <b>XOR-correlation</b>, and a <b>Walsh–Hadamard transform</b> evaluates it for all
+  <code>2²⁴</code> candidate keys at once, the way an FFT does for ordinary convolution. That turns
+  the real attack into <b>65,536 chosen plaintexts and about five minutes</b> — three times less
+  data than the intended differential attack, with a unique answer instead of a majority vote.</p>
+</div>
+</section>
+
+<footer><div class="wrap">
+  <div class="eyebrow">What you just ran</div>
+  <p>A 14 KB WebAssembly module — the cipher, difference tracing, the measurement loop, integral
+  labelling and the key recovery above — compiled with <code>clang --target=wasm32 -msimd128</code>
+  from the same C that solves the challenge. Nothing is precomputed or faked.</p>
+  <p>Speed is why this is possible in a tab. Two million difference pairs take about
+  <b>240 ms</b> here; the identical measurement in NumPy takes <b>4.9 s</b> — a 20× gap, because
+  NumPy has to materialise sixteen intermediate arrays where WebAssembly keeps one byte in a
+  register. On the heavier Walsh–Hadamard kernel the gap narrows to about 5×, landing within
+  1.6× of native C.</p>
+  <p>The full 16-round key recovery is the one thing <i>not</i> run here: it needs 65,536 chosen
+  plaintexts and about five minutes of native C. Everything leading up to it is above.</p>
+  <p>Full write-ups, the verified reference implementation, the Python labs and the complete
+  key-recovery solver live in the <code>crypto-sphinx</code> solution directory —
+  <code>DIFFERENTIAL.md</code>, <code>INTEGRAL.md</code>, <code>difflab.py</code>,
+  <code>intlab.py</code>, <code>solve_integral_opt.c</code>.</p>
+  <p style="color:var(--faint);font-size:13.5px">The cipher is Ralph Merkle's Khafre (1989),
+  published for study. Keys here are generated in your browser and thrown away.</p>
+</div></footer>
+
+<script>
+const WASM_B64="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g7M2L0/HYaRtkCZE2j4JINjfQSyXYODYAxqL0HLqu14lCFatiBNbef5Nb31O99nnoRmJ7F+18ILU/HALx9czxLjDBQNugsycSFgKmzBxpLPtJD1jF+LcPXZuN7is/TkBaTeiXFlbvmu7rjuIBebWIc0jtlOAy/H1wgTPSrSROkyY6UXaJHtfsbxMp1cdC05nPYrRsHtn0OnAnS84ARcDNAIbmxqpfd7lc6HEMw+LG01vL2437i5+JKjP9idN4BQofudaFTxIkiVDMUcXRs0jmdkGGt/maU9y+nBrt/s2pbZRCe707H417lK5TYcfnFdSMg/k/gkwS12K73G8S4is/cxQnEuOuCv3TJcLe4zM06vFYclYKEJzLb8F+1onYnaq+b3odh4pDsedGEj7eQr0yp6MKQ/T8xyfcHSOZSY7zsLf0wRtjYDHjMlDvZKQtIyoDYRSW1j/2DLIf7LZFSzSDlpvY3oYnplW8ttQ8ClRZ0IaKjyiGZtmmEAViB7zifXTXPVk0UXVyhOr8KrzttChXwhJ7JqiOuWlVKIS4g72bJ1rHpAuNmx5Eq2DwshjIR1BNeTXB3TeEUaTWpamYCY05H/lwyb1lRDxkY+pk0q3LroE7mXD6ac4VT7ddR3kUzHMIeh3u0QOt5Fe1pEGplwW3mjJeKPQNBPNlGYAzjooDHF6yC3mffkeHKqSq+AueUay3vq5TxysdFFXJWhpN1WY6KNtpkWZSx+W+Dx/3AwCAkl8+xduR4f9wGrrj8u5zliElvG8ZNaqIRCzH8BQddHFriKaTIYbheN/M6u4PP1OmjETZcbrZOHp4YU1sUjio92PBx3UNl2f4XA5PyfBsZhqg3EzMKGBeCw6hhZdClABBtWPtsgFwab4vhEDgioQT7qAynaf6jvKgO9VR3zUie0HvZV6wfpWK545bNLaFqVBKs/rsa1q9l7bgZst5mz8B++evRBiZkkgIJRiOVz5sPSgGbJj+fIUc+uXZmQIQ84N7R/c/j74MaTnxjiOv4q1RfMi3V17lbqTFfzDqQERKr4i9sR8/u2cPeoJ18Qk//Rq1dYAiQIEbmFtZQAJCGxhYi53YXNtAc8BEgAHc2IwX3B0cgEHc2IxX3B0cgIHb3V0X3B0cgMJdHJhY2VfcHRyBAdjbnRfcHRyBQdkZHRfcHRyBgdsYmxfcHRyBwhzdXJ2X3B0cggEZW5jMQkHZW5jcnlwdAoKdHJhY2VfcGFpcgsQbWVhc3VyZV9pbmFjdGl2ZQwHZGR0X3Jvdw0PemVyb19kaWZmX2J5dGVzDhBpbnRlZ3JhbF9tZWFzdXJlDwx3aGljaF9tYXR0ZXIQEWJ1aWxkX3JlZHVjZWRfc2V0EQdyZWNvdmVyBxIBAA9fX3N0YWNrX3BvaW50ZXIJEQIABy5yb2RhdGEBBS5kYXRhADgJcHJvZHVjZXJzAQxwcm9jZXNzZWQtYnkBDFVidW50dSBjbGFuZxExOC4xLjMgKDF1YnVudHUxKQA1D3RhcmdldF9mZWF0dXJlcwMrD211dGFibGUtZ2xvYmFscysIc2lnbi1leHQrB3NpbWQxMjg=";
+const hex=(v,n)=>v.toString(16).padStart(n,"0");
+const $=s=>document.querySelector(s);
+let E,M32,M8;
+
+// theme toggle
+$("#tog").onclick=()=>{const r=document.documentElement;
+  const cur=r.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light");
+  r.setAttribute("data-theme",cur==="dark"?"light":"dark");};
+
+function b64ToBytes(b64){const s=atob(b64);const a=new Uint8Array(s.length);
+  for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a;}
+
+function parseHex16(s,fallback){const t=s.replace(/[^0-9a-fA-F]/g,"").padEnd(16,"0").slice(0,16);
+  return [parseInt(t.slice(0,8),16)>>>0,parseInt(t.slice(8,16),16)>>>0];}
+
+function keyWords(){return parseHex16($("#kx").value);}
+
+/* ---------- 01 encrypt ---------- */
+function doEnc(){
+  const [pl,ph]=parseHex16($("#ptx").value), [k0,k1]=keyWords();
+  E.enc1(pl,ph,k0,k1); const o=E.out_ptr()>>>2;
+  $("#encout").innerHTML="plaintext   "+hex(pl,8)+hex(ph,8)+
+    "\nkey         "+hex(k0,8)+hex(k1,8)+
+    "\nciphertext  <em>"+hex(M32[o],8)+hex(M32[o+1],8)+"</em>";
+}
+
+/* ---------- 02 difference trail ---------- */
+function doTrail(){
+  const bp=+$("#bp").value, dv=+$("#dv").value;
+  $("#dvl").textContent="0x"+hex(dv,2);
+  const [pl,ph]=parseHex16($("#ptx").value), [k0,k1]=keyWords();
+  let l2=pl,h2=ph; const sh=8*(3-(bp&3));
+  if(bp<4) l2=(pl^(dv<<sh))>>>0; else h2=(ph^(dv<<sh))>>>0;
+  E.trace_pair(pl,ph,l2,h2,k0,k1);
+  const t=E.trace_ptr()>>>2;
+  let html="<tr><th>rnd</th><th>S-box</th><th>in Δ</th><th colspan='8'>state difference (8 bytes)</th></tr>";
+  let firstActive=-1;
+  for(let r=0;r<16;r++){
+    const i1=M32[t+r*4],i2=M32[t+r*4+1],dl=M32[t+r*4+2],dh=M32[t+r*4+3];
+    const act=i1!==i2; if(act&&firstActive<0)firstActive=r;
+    let cells="";
+    for(let i=0;i<8;i++){const w=i<4?dl:dh;const b=(w>>>(8*(3-(i&3))))&0xff;
+      cells+="<td><span class='by"+(b?" on":"")+"'>"+hex(b,2)+"</span></td>";}
+    html+="<tr style='transition:opacity .3s'><td class='rnd'>"+r+"</td>"+
+      "<td><span class='chip "+(act?"act":"ina")+"'>"+(act?"active":"inactive")+"</span></td>"+
+      "<td style='color:var(--"+(act?"hot":"faint")+")'>"+hex(i1^i2,2)+"</td>"+cells+"</tr>";
+  }
+  $("#dtab").innerHTML=html;
+}
+
+/* ---------- 03 measurement ---------- */
+function doMeasure(){
+  const trials=+$("#tr").value, [k0,k1]=keyWords();
+  $("#mstat").textContent="running…"; $("#runm").disabled=true;
+  setTimeout(()=>{
+    const t0=performance.now();
+    E.measure_inactive(6,trials,k0,k1,(Math.random()*4294967295)>>>0);
+    const ms=Math.round(performance.now()-t0);
+    const c=E.cnt_ptr()>>>2, N=M32[c+17];
+    let html="<tr><th>rnd</th><th style='text-align:left'>P(inactive)</th><th></th><th>count</th></tr>";
+    for(let r=0;r<16;r++){
+      const v=M32[c+r]; const frac=v/N;
+      const w=v===0?0:Math.max(2,Math.min(100,frac*100*25));
+      const cls=v===0?"zero":(v===N?"full":"");
+      const lbl=v===0?"0 — impossible":(v===N?"1 — always":"1 / "+Math.round(N/v));
+      html+="<tr><td class='rnd'>"+r+"</td><td style='text-align:left;color:var(--"+
+        (v===0?"dead":v===N?"cool":"text")+")'>"+lbl+"</td>"+
+        "<td style='width:60%'><div class='bar "+cls+"' style='width:"+(v===N?100:w)+"%'></div></td>"+
+        "<td style='color:var(--faint)'>"+v+"</td></tr>";
+    }
+    const j=M32[c+16];
+    html+="<tr><td class='rnd'>12&amp;14</td><td colspan='3' style='text-align:left;color:var(--hot)'>"+
+      (j?("1 / "+Math.round(N/j)):"none seen")+" &nbsp;<span style='color:var(--faint)'>"+
+      j+" of "+N.toLocaleString()+" pairs — the attack's characteristic</span></td></tr>";
+    $("#mtab").innerHTML=html;
+    $("#mstat").textContent=N.toLocaleString()+" pairs in "+ms+" ms";
+    $("#runm").disabled=false;
+  },20);
+}
+
+/* ---------- 04 integral ---------- */
+function doIntegral(){
+  const s1=+$("#s1").value, s2=+$("#s2").value, [k0,k1]=keyWords();
+  $("#istat").textContent="computing…";
+  setTimeout(()=>{
+    const t0=performance.now();
+    const n=E.integral_measure(s1,s2,0x1234abcd>>>0,0x5678ef01>>>0,k0,k1);
+    const ms=Math.round(performance.now()-t0);
+    const L=E.lbl_ptr();
+    let html="<tr><th>after round</th>";
+    for(let i=0;i<8;i++)html+="<th>byte "+i+"</th>";
+    html+="<th style='text-align:left'>guaranteed balanced</th></tr>";
+    // LBL[r] is the state BEFORE round r, i.e. AFTER round r-1
+    for(let r=1;r<=16;r++){
+      let cells="",bal=[];
+      for(let i=0;i<8;i++){
+        const ch=String.fromCharCode(M8[L+r*8+i]);
+        const cls=ch==="?"?"Q":ch;
+        if(ch!=="?")bal.push(i);
+        cells+="<td><span class='lb "+cls+"'>"+ch+"</span></td>";
+      }
+      const dead=bal.length===0;
+      html+="<tr class='"+(dead?"row-dead":"")+"'><td class='rnd'>"+(r-1)+"</td>"+cells+
+        "<td style='text-align:left;color:var(--"+(dead?"dead":"muted")+")'>"+
+        (dead?"—":(bal.length===8?"all 8":bal.join(" ")))+"</td></tr>";
+    }
+    $("#itab").innerHTML=html;
+    $("#istat").textContent=n.toLocaleString()+" texts in "+ms+" ms";
+  },20);
+}
+
+/* ---------- 05 key recovery ---------- */
+let RK=null;
+function newKey(){RK=[(Math.random()*4294967295)>>>0,(Math.random()*4294967295)>>>0];}
+function doRecover(){
+  if(!RK)newKey();
+  const r1=+$("#rr").value, nInv=r1-3;
+  const [k0,k1]=RK;
+  $("#rstat").textContent="searching…"; $("#runr").disabled=true;
+  $("#rout").textContent="building the integral set and searching…";
+  setTimeout(()=>{
+    const bl=(Math.random()*4294967295)>>>0, bh=(Math.random()*4294967295)>>>0;
+    const mask=E.which_matter(r1,nInv,6,bl,bh,k0,k1);
+    const names=["lo0","lo1","lo2","lo3","hi0","hi1","hi2","hi3"];
+    const matter=names.filter((_,i)=>mask&(1<<i));
+    const t0=performance.now();
+    const ns=E.recover(r1,nInv,mask,6,bl,bh,k0,k1);
+    const ms=Math.round(performance.now()-t0);
+    const o=E.out_ptr()>>>2, sp=E.surv_ptr()>>>2;
+    const truth=M32[o], total=M32[o+2];
+    let found=false, list=[];
+    for(let i=0;i<ns;i++){list.push(M32[sp+i]); if(M32[sp+i]===truth)found=true;}
+    const fmt=g=>matter.map((nm,i)=>nm+"="+hex((g>>>(8*i))&0xff,2)).join(" ");
+    $("#rout").innerHTML=
+      "cipher          8 + "+r1+" = "+(8+r1)+" rounds\n"+
+      "integral set    saturate byte 6 → 256 chosen plaintexts\n"+
+      "unwind          "+nInv+" round"+(nInv>1?"s":"")+" from the ciphertext\n"+
+      "key bytes that matter   <em>"+matter.join(", ")+"</em>  → "+total.toLocaleString()+" guesses\n"+
+      "\nsurvivors       "+ns+"  ["+list.slice(0,4).map(fmt).join(" | ")+"]\n"+
+      "actual key      "+fmt(truth)+"\n"+
+      "result          "+(found?"<span class='ok'>✓ KEY RECOVERED</span>":"<em>not found</em>")+
+      "   <span style='color:var(--faint)'>"+ms+" ms</span>";
+    $("#rstat").textContent=total.toLocaleString()+" guesses in "+ms+" ms";
+    $("#runr").disabled=false;
+  },20);
+}
+
+/* ---------- boot ---------- */
+WebAssembly.instantiate(b64ToBytes(WASM_B64),{}).then(({instance})=>{
+  E=instance.exports; M32=new Uint32Array(E.memory.buffer); M8=new Uint8Array(E.memory.buffer);
+  doEnc(); doTrail(); doIntegral(); newKey();
+  $("#zdb").innerHTML="verified live: <b>"+E.zero_diff_bytes(1)+
+    "</b> of 65,280 cases produce even one zero byte.";
+  ["#ptx","#kx"].forEach(s=>$(s).addEventListener("input",()=>{doEnc();doTrail();doIntegral();}));
+  ["#bp","#dv"].forEach(s=>$(s).addEventListener("input",doTrail));
+  ["#s1","#s2"].forEach(s=>$(s).addEventListener("change",doIntegral));
+  $("#runm").onclick=doMeasure;
+  $("#runr").onclick=doRecover;
+  $("#newk").onclick=()=>{newKey();$("#rout").textContent="New random key generated. Press Recover the key.";};
+  doMeasure();
+}).catch(err=>{
+  document.querySelectorAll(".out").forEach(n=>n.textContent="WebAssembly failed to start: "+err);
+});
+</script>
