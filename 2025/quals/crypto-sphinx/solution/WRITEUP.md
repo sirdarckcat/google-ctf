@@ -4,6 +4,12 @@
 but no cryptography. Every technical term is defined the first time it appears.
 Take your time; the ideas are simple once unpacked, they're just stacked deep.
 
+> **Want to learn differential cryptanalysis specifically, by doing it?** Read
+> **[`DIFFERENTIAL.md`](DIFFERENTIAL.md)** instead (or first) — it is a hands-on
+> tutorial built around a runnable playground, `difflab.py`, with measured
+> experiments and exercises. This document is the broader walkthrough of the whole
+> challenge.
+
 This is the story of solving the `crypto-sphinx` challenge from Google CTF 2025:
 what the puzzle was, the two attacks that break it, and how to make the
 recovery as cheap as possible —
@@ -279,8 +285,8 @@ attack uses.
 
 The real characteristic asks for the S-box to be inactive at **rounds 12 and 14**.
 Measured over 10 million pairs, that joint event has probability
-`167/10,000,000 = 1/59,880 ≈ 2^-15.9` — essentially two independent `1/256`
-events. So ~196,000 pairs (768 base plaintexts × 255 one-byte differences) yield
+`464/30,000,000 = 1/64,655 = 2^-15.98` (pooled over 5 keys; 68% CI
+1/61,787..1/67,803) — essentially two independent `1/256` events. So ~196,000 pairs (768 base plaintexts × 255 one-byte differences) yield
 about 3 **right pairs** (pairs that actually follow the trail).
 
 - **Right pair:** a pair that happens to satisfy the characteristic.
@@ -552,7 +558,7 @@ noticing that they share a single structural fact, and spending it better.
 **The fact.** A one-byte perturbation at **byte 6** rides the entire first octet
 without ever touching an S-box (Part 3 measured this: inactive rounds 0–6, first
 active at round 7, in 100% of pairs). The differential attack spends that gift on
-a *probabilistic* trail — it then needs two lucky cancellations (`1/59,880`), so it
+a *probabilistic* trail — it then needs two lucky cancellations (`≈2^-16`), so it
 needs ~196,000 pairs to get ~3 usable ones.
 
 **The better use.** That fact is about byte 6, not about differences — so it works

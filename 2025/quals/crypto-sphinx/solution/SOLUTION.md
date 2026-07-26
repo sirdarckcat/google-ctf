@@ -8,6 +8,11 @@ flag (`target = E_k(FLAG)`), and wins only when you submit `inp` with
 task is **key recovery / single-block decryption** of a chosen-plaintext
 encryption oracle.
 
+> **New to differential cryptanalysis?** Start with **[`DIFFERENTIAL.md`](DIFFERENTIAL.md)**
+> — a hands-on tutorial that uses this challenge as a lab, with a runnable
+> playground (`difflab.py`), measured experiments and exercises. It assumes no
+> crypto background. This document is the terse expert-level analysis.
+
 ## 1. Reverse engineering the cipher (the hard, *verified* part)
 
 `solution/sphinx_model.py` is a clean re-implementation **bit-exact verified**
@@ -75,8 +80,11 @@ cipher, measured over 102,000 pairs with Δ = `(0, A@byte6)`:
   |---|---|---|---|---|---|---|---|
   | P(inactive) | **0** | 1/262 | 1/257 | 1/248 | 1/248 | 1/254 | 1/245 |
 
-  Over 10^7 pairs, P(round 12 **and** round 14 inactive) = 167/10^7 =
-  **1/59,880 ≈ 2^-15.9** (essentially independent 2^-8 · 2^-8).
+  Pooled over 5 keys × 6·10^6 pairs = 3·10^7 pairs, P(round 12 **and** round 14
+  inactive) = 464/3·10^7 = **1/64,655 = 2^-15.98** (68% CI 1/61,787..1/67,803) —
+  i.e. exactly the independent product 2^-8 · 2^-8, with no key dependence.
+  (Single smaller samples are noisy: one 10^7 run gave 1/59,880 and one 2·10^6 run
+  gave 1/83,333. Pool before quoting a rare-event probability.)
 
 The intended attack uses exactly that event: ~196k pairs (768 base texts × 255
 one-byte differences) buy ~3 right pairs. Right pairs are identified with a
@@ -140,7 +148,8 @@ The published solution uses a one-byte plaintext difference in **state byte 6**
 **inactive for rounds 0–6 and first activates at round 7, in 100% of cases** —
 the whole first octet is transparent to it. The differential attack spends that
 gift on a probabilistic trail (cancellations at rounds 12 and 14, joint
-probability measured **1/59,880 ≈ 2^-15.9**, so ~196k pairs buy ~3 right pairs).
+probability measured **1/64,655 = 2^-15.98** over 3·10^7 pairs, so ~196k pairs buy
+~3 right pairs).
 
 But that "free first octet" is a statement about **byte 6**, not about
 differences. It applies verbatim to *saturation* — and saturation is
@@ -160,7 +169,15 @@ depth (structural — identical across keys):
 
 `sat(2,6)` reaches **exactly the same depth as the order-3 set with 256× fewer
 queries**, and a scan of all 28 order-2 pairs shows `(2,6)` is the *only* one that
-gets there. Order-1 is one round shallower, and that extra inversion pulls in a
+gets there. There is a clean reason. Measuring the first round at which a
+one-byte perturbation reaches the S-box, for each byte position:
+
+| byte | 3 | 7 | 1 | 5 | 0 | 4 | 2 | 6 |
+|---|---|---|---|---|---|---|---|---|
+| first active round | 0 | 1 | 2 | 3 | 4 | 5 | 6 | **7** |
+
+Every position gives a *distinct* number of free rounds, 0–7. Bytes **6 and 2 are
+the top two** — so `{2,6}` is not a lucky find, it is the pair of best positions. Order-1 is one round shallower, and that extra inversion pulls in a
 5th key byte (`W2_hi1`) → 2^40, so order-2 is the sweet spot.
 
 ### One set, 32 bits: all four balanced bytes share one histogram
@@ -344,6 +361,10 @@ the same expensive-but-structural integral attack.)
 
 ## 5. Files
 
+* **`DIFFERENTIAL.md` + `difflab.py` — hands-on differential-cryptanalysis
+  tutorial and playground.** `python3 difflab.py` self-tests; the tutorial's
+  experiments are all one-liners against it. `difflab.py` is bit-exact vs
+  `sphinx_model.py` (3000 random key/block pairs).
 * `sphinx_model.py` — bit-exact verified cipher (`enc_block`/`dec_block`,
   `R_forward/R_inverse`, `SBOXES`). Run `python3 sphinx_model.py` to re-verify.
 * `sphinx_fast.py` — vectorized (numpy) batch encryptor used for measurements.
