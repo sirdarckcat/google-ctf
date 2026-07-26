@@ -134,16 +134,29 @@ EXPORT void pass_plane(u32 which,u32 bit){
     u32 sh = bit + (which?8:0);
     for(u32 i=0;i<N24;i++) if((T[i]>>24)&1u) BAL[i]|=(u16)(1u<<sh);
 }
-EXPORT u32 pass_finish(void){
+/* The 16-bit filter and the full verification are separate phases, and the split is
+   worth exposing: a WRONG W2_hi2 leaves just as many candidates as the right one
+   (2^24 * 2^-16 = 256 of them), and only the verification can tell them apart. */
+static u32 NFILT;
+EXPORT u32 filt_count(void){return NFILT;}
+EXPORT u32 pass_scan(void){
     u16 want=(u16)((PC5&0xff)|((PC7&0xff)<<8));
     ncand=0;
-    for(u32 w=0;w<N24;w++) if(BAL[w]==want){
-        /* 16 bits of filter leaves ~2^8 here; confirm all four bytes with a real inversion */
-        if(verify4(PWHI2,(w>>16)&0xff,(w>>8)&0xff,w&0xff) && ncand<1024u)
-            CAND[ncand++]=(PWHI2<<24)|w;
-    }
+    for(u32 w=0;w<N24;w++) if(BAL[w]==want && ncand<(1u<<20)) CAND[ncand++]=w;
+    NFILT=ncand;
     return ncand;
 }
+EXPORT u32 pass_verify(void){
+    u32 keep=0;
+    for(u32 i=0;i<ncand;i++){
+        u32 w=CAND[i];
+        if(verify4(PWHI2,(w>>16)&0xff,(w>>8)&0xff,w&0xff)) CAND[keep++]=(PWHI2<<24)|w;
+    }
+    ncand=keep;
+    return keep;
+}
+EXPORT u32 pass_finish(void){ pass_scan(); return pass_verify(); }
+
 /* convenience: the whole pass in one call (used by the node benchmarks) */
 EXPORT u32 attack_pass(u32 whi2){
     pass_begin(whi2);
