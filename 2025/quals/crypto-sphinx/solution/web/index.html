@@ -72,6 +72,8 @@ table.grid{border-collapse:collapse;font-family:var(--mono);font-size:12.5px;
 table.grid th{color:var(--faint);font-weight:500;font-size:10.5px;letter-spacing:.1em;
   text-transform:uppercase;text-align:center;padding:0 5px 8px;white-space:nowrap}
 table.grid td{padding:2px 4px;text-align:center;white-space:nowrap}
+table.grid td.why,table.grid th.why{white-space:normal;text-align:left;
+  min-width:20ch;max-width:46ch;line-height:1.45;padding:5px 4px 5px 10px}
 td.rnd{color:var(--faint);text-align:right;padding-right:9px;width:1%}
 .by{display:inline-block;width:2.05em;padding:2px 0;border-radius:3px;
   background:var(--cool-bg);color:var(--cool);transition:background .25s,color .25s}
@@ -413,19 +415,80 @@ this plaintext. Most buy nothing. A few buy an extra free round.</div>
 
 <section><div class="wrap">
   <div class="num">04</div><h2>Integral: stop hoping, start proving</h2>
-  <p>Same structural fact, spent differently. Instead of two texts, take a whole <b>set</b>: one
-  byte running through all 256 values, everything else fixed. Now track four labels per byte —</p>
-  <div class="legend" style="margin:14px 0 18px;font-size:13px">
-    <span><b class="lb A">A</b> &nbsp;saturated — hits all 256 values</span>
-    <span><b class="lb C">C</b> &nbsp;constant</span>
-    <span><b class="lb B">B</b> &nbsp;balanced — XORs to zero</span>
-    <span><b class="lb Q">?</b> &nbsp;unknown</span>
-  </div>
-  <p>Two rules do all the work. <b>XOR is linear</b>, so balance survives it — but
-  <code>A ⊕ A = B</code>, saturation decays into mere balance. And <b>the S-box</b>: a constant in
-  gives a constant out, a saturated byte in gives saturated bytes out (it's a bijection) — but a
-  merely <i>balanced</i> byte in gives <b>nothing</b>, because a sum tells you nothing about
-  individual values and the S-box needs values.</p>
+  <p>The differential attack needed luck: one pair in 65,000. Here is the alternative — give
+  up on pairs, and use a whole <b>set</b> of plaintexts chosen so that something about it is
+  <i>guaranteed</i>.</p>
+
+  <h3>The set</h3>
+  <p>Concretely. Take any plaintext. Make <b>256 copies</b> of it. In copy number <i>v</i>, overwrite
+  <b>byte 6</b> with <i>v</i> — and leave all seven other bytes exactly as they were. That's the
+  whole set: 256 texts, identical everywhere except byte 6, which runs through
+  <code>00, 01, 02, … ff</code>, each value appearing exactly once.</p>
+  <p>That is what <b>“saturate byte 6”</b> means: that byte takes every possible value across the
+  set, and nothing else varies. We then send all 256 texts through the oracle.</p>
+
+  <h3>The XOR-sum, and what “balanced” means</h3>
+  <p>Now pick any byte position in the internal state, at any round. Pull that one byte out of all
+  256 encryptions and <b>XOR all 256 of them together</b> into a single byte. Call the result the
+  <b>XOR-sum</b> of that position. If it comes out <code>00</code>, we say that position is
+  <b>balanced</b>.</p>
+  <p>Why would it ever be zero? Look at the input. Byte 6 holds every value <code>00</code>…<code>ff</code>
+  exactly once, so its XOR-sum is</p>
+  <div class="out" style="margin-bottom:14px">00 ⊕ 01 ⊕ 02 ⊕ … ⊕ ff  =  <em>00</em>
+<span style="color:var(--faint)">pair 00 with 01, 02 with 03, … each pair gives 01, and 128 copies of 01 XOR to 00</span></div>
+  <p>So a saturated byte is automatically balanced. That is the seed. The interesting part is that
+  balance <i>survives</i> some way into the cipher — and unlike a differential trail it survives
+  <b>with certainty</b>, for every key. Better still, it is something we can <b>test from outside</b>:
+  collect 256 ciphertexts, undo a few rounds with a guessed key, XOR a byte across all of them, and
+  see whether you get zero.</p>
+
+  <h3>Four labels</h3>
+  <p>To follow this through the rounds we need to say, for each byte position, how much we know
+  about it across the set. Four possibilities, strongest first:</p>
+  <div class="scroll"><table class="grid" style="margin:12px 0">
+    <tr><th></th><th style="text-align:left">name</th><th class="why">what it asserts about that byte across the whole set</th></tr>
+    <tr><td><span class="lb A">A</span></td><td style="text-align:left">saturated</td>
+      <td class="why">every value <code>00</code>…<code>ff</code> occurs equally often</td></tr>
+    <tr><td><span class="lb C">C</span></td><td style="text-align:left">constant</td>
+      <td class="why">the same value in all 256 texts</td></tr>
+    <tr><td><span class="lb B">B</span></td><td style="text-align:left">balanced</td>
+      <td class="why">only this: the 256 values XOR to <code>00</code>. Nothing about the values themselves</td></tr>
+    <tr><td><span class="lb Q">?</span></td><td style="text-align:left">unknown</td>
+      <td class="why">no guarantee at all</td></tr>
+  </table></div>
+  <p><b class="lb A">A</b> and <b class="lb C">C</b> both imply <b class="lb B">B</b> — a saturated
+  byte XORs to zero as we just showed, and a constant repeated an even number of times XORs to zero
+  too. So why keep them apart? Because they behave completely differently at the next S-box, and
+  that turns out to decide everything.</p>
+
+  <h3>How the labels move</h3>
+  <p><b>XOR with a constant</b> — including every key byte — changes nothing:
+  <b class="lb A">A</b> stays <b class="lb A">A</b>, <b class="lb C">C</b> stays <b class="lb C">C</b>,
+  <b class="lb B">B</b> stays <b class="lb B">B</b>. Shifting every value by the same amount keeps
+  “hits every value” true and keeps a zero sum zero. <i>The key cannot interfere with any of this.</i></p>
+  <p><b>XOR two varying bytes</b> and saturation breaks:
+  <code><b class="lb A">A</b> ⊕ <b class="lb A">A</b> = <b class="lb B">B</b></code>. Both sums were
+  zero so the sum of the XOR is still zero — but the individual values no longer hit each one
+  exactly once. Saturation is fragile; balance is robust. Most of the decay you are about to watch
+  is <b class="lb A">A</b> wearing down into <b class="lb B">B</b>.</p>
+  <p><b>Rotations and swaps</b> are free: <code>ROT</code> is always a whole number of bytes, so
+  labels simply move to new positions.</p>
+  <p><b>The S-box</b> is where it is decided:</p>
+  <div class="scroll"><table class="grid" style="margin:12px 0">
+    <tr><th>input byte</th><th>the four output bytes</th><th class="why">why</th></tr>
+    <tr><td><span class="lb C">C</span></td><td><span class="lb C">C</span> <span class="lb C">C</span> <span class="lb C">C</span> <span class="lb C">C</span></td>
+      <td class="why">the same entry is looked up every time</td></tr>
+    <tr><td><span class="lb A">A</span></td><td><span class="lb A">A</span> <span class="lb A">A</span> <span class="lb A">A</span> <span class="lb A">A</span></td>
+      <td class="why">each output byte is a <b>permutation</b> of the input, so all 256 values still occur once each</td></tr>
+    <tr><td><span class="lb B">B</span></td><td><span class="lb Q">?</span> <span class="lb Q">?</span> <span class="lb Q">?</span> <span class="lb Q">?</span></td>
+      <td class="why">a <i>sum</i> says nothing about individual values, and a lookup needs a value</td></tr>
+  </table></div>
+  <div class="note">That last row is the whole limit of the technique: <b>an integral dies at the
+  first S-box whose input byte is merely balanced.</b> Everything else — rotations, swaps, the key —
+  is free. So the game is to delay that moment.</div>
+  <p>Which is exactly why <b>byte 6</b> is the right byte to saturate: it is the one that takes
+  longest to reach the S-box, so its <b class="lb A">A</b> survives seven rounds before anything
+  happens at all. Same fact as the free ride in §2, now costing no probability whatsoever.</p>
 </div>
 <div class="bleed"><div class="panel">
   <div class="panel-title"><span>Integral propagation — measured, not predicted</span><span class="kbd" id="istat">…</span></div>
@@ -434,25 +497,36 @@ this plaintext. Most buy nothing. A few buy an extra free round.</div>
       <select id="s1"><option>0</option><option>1</option><option>2</option><option>3</option>
       <option>4</option><option>5</option><option selected>6</option><option>7</option></select></div>
     <div class="ctrl"><label for="s2">and byte</label>
-      <select id="s2"><option value="255" selected>— (256 texts)</option>
+      <select id="s2"><option value="255" selected>— (nothing)</option>
       <option value="0">0</option><option value="1">1</option><option value="2">2</option>
       <option value="3">3</option><option value="4">4</option><option value="5">5</option>
       <option value="7">7</option></select></div>
+    <span class="kbd" id="setdesc"></span>
   </div>
   <div class="scroll"><table class="grid" id="itab"></table></div>
+  <div class="legend"><span>every label here is <b>measured</b> from the real encryptions, not inferred</span></div>
 </div></div>
 <div class="wrap">
   <p style="margin-top:22px">Read it downward. A lone <b class="lb A">A</b> drifts for seven rounds
-  — the same free ride, now costing <i>no probability at all</i>. At round 7 it enters the S-box
-  and spreads. Then <code>A⊕A</code> collapses saturation into balance, and the moment a
-  <b class="lb B">B</b> is the byte feeding the S-box, everything downstream turns to
+  while everything else stays <b class="lb C">C</b> — the S-box is reading a constant, so nothing
+  happens. At round 7 the <b class="lb A">A</b> lands in the lookup byte and spreads into four
+  saturated bytes. Then <code>A⊕A</code> grinds saturation down into <b class="lb B">B</b>, and the
+  moment a <b class="lb B">B</b> is the byte feeding the S-box, everything downstream becomes
   <b class="lb Q">?</b>.</p>
-  <p>Now add byte <b>2</b> as a second saturated byte (65,536 texts). The property reaches a round
-  deeper — and that extra round is exactly what the real key recovery needs. Of all 28 possible
-  pairs, only <code>{2,6}</code> gets there, because 6 and 2 are the two positions that take
-  longest to reach an S-box.</p>
-  <div class="note">Differential needs <code>2⁻¹⁶</code> luck and statistics. Integral needs none —
-  it is true for every key, every time. You pay in queries instead: a whole set, not a pair.</div>
+
+  <h3>Two saturated bytes</h3>
+  <p>Now set the second selector to byte <b>2</b>. That changes the set: instead of 256 texts we take
+  <b>every combination</b> of a value for byte 2 and a value for byte 6 — <code>256 × 256 =
+  65,536</code> texts. Both bytes are still saturated, each value of each now appearing 256 times,
+  which is “equally often”, so the labels still apply.</p>
+  <p>More structure in the set means it takes longer to destroy, and the property reaches
+  <b>one round deeper</b>. That single extra round is exactly what the key recovery in §5 needs.</p>
+  <p>Why byte 2 as the partner? Because after byte 6 it is the next-slowest byte to reach the S-box
+  (6 rounds against 7 — the same table you measured in §1). Of all 28 possible pairs, only
+  <code>{2,6}</code> reaches that depth. Try the others and watch it fall short.</p>
+  <div class="note">Differential needed <code>2⁻¹⁶</code> luck and a pile of statistics. Integral
+  needs neither — this is true for every key, every time. You pay in queries instead: a whole set
+  rather than a pair.</div>
 </div>
 </section>
 
@@ -973,6 +1047,9 @@ function doIntegral(){
   setTimeout(()=>{
     const t0=performance.now();
     const n=E.integral_measure(s1,s2,0x1234abcd>>>0,0x5678ef01>>>0,k0,k1);
+    $("#setdesc").textContent = s2>7
+      ? "256 texts: byte "+s1+" takes every value once, everything else fixed"
+      : "65,536 texts: every combination of byte "+s1+" and byte "+s2;
     const ms=Math.round(performance.now()-t0);
     const L=E.lbl_ptr();
     let html="<tr><th>after round</th>";
