@@ -5,9 +5,10 @@ but no cryptography. Every technical term is defined the first time it appears.
 Take your time; the ideas are simple once unpacked, they're just stacked deep.
 
 This is the story of solving the `crypto-sphinx` challenge from Google CTF 2025:
-what the puzzle was, why the "obvious" attacks fail, and the one that works —
-ending in a program that recovers the secret in about 22 minutes on an ordinary
-laptop-class machine.
+what the puzzle was, the two attacks that break it, and how to make the
+recovery as cheap as possible —
+ending in a program that recovers the secret from 65,536 queries in about five
+minutes on an ordinary laptop-class machine.
 
 ---
 
@@ -205,9 +206,12 @@ wins.
 
 ---
 
-## Part 3 — Why the "textbook" attack (differential) doesn't work
+## Part 3 — The differential attack (this is the *intended* solution)
 
-The hint says Biham, so let's define his technique and see why it stalls here.
+The hint says Biham, so let's define his technique. This section originally
+claimed the differential route was impossible. **That was wrong** — it is the
+intended solution — so here is the corrected story, which is more interesting
+anyway, because understanding *why* it works is what makes Part 6 possible.
 
 - **Difference:** for a pair of blocks `A` and `A'`, their difference is
   `ΔA = A ⊕ A'`. It records *where the two blocks differ* (a 1 bit wherever they
@@ -216,30 +220,97 @@ The hint says Biham, so let's define his technique and see why it stalls here.
   difference* through the cipher and studies the *output difference*. You look
   for an input difference that, with useful probability, forces a predictable
   output difference; deviations from randomness leak key information.
+- **Active / inactive S-box:** in a given round, the S-box is *active* for a pair
+  if the byte feeding it differs between the two encryptions, and *inactive* if
+  that byte is identical. An inactive S-box contributes **nothing** to the
+  difference — the difference passes that round untouched.
 
-Here's the wall. Watch what a difference does at a whitening step. If two
-plaintexts are `P` and `P' = P ⊕ ΔP`, then after XORing with the same key `W0`:
+### The free ride through the first octet
+
+Here is the gift this cipher hands you. Take two plaintexts differing in **one
+byte, at byte position 6**. Because only the low byte of `lo` feeds the S-box each
+round, and byte 6 lives in the other half, that difference does not reach any
+S-box for a long time. Measured over 102,000 random pairs:
+
+> The S-box is **inactive for rounds 0–6** and first becomes active at **round 7**
+> — in **100%** of pairs.
+
+The entire first octet is transparent to a byte-6 difference. That is not
+probabilistic; it is structural. Remember this fact — it is the single most
+valuable thing in the whole challenge.
+
+### Where the original reasoning was right, and where it broke
+
+For the trail to stay useful, the difference must sometimes **cancel**: an S-box
+output difference lands on a byte that already has a difference, and the two XOR
+to zero, making a later round inactive again.
+
+The original claim was that cancellation is impossible because our S-box (4
+independent byte-permutations) **never outputs a zero difference byte**. That part
+is true, and measurement confirms the consequence exactly:
+
+| round | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 |
+|---|---|---|---|---|---|---|---|---|---|
+| P(inactive) | **0** | **0** | **0** | 1/262 | 1/257 | 1/248 | 1/248 | 1/254 | 1/245 |
+
+At rounds 7–9 cancellation is *literally impossible* (probability 0 over 102,000
+pairs). The reason is exactly as argued: the difference has just landed in a half
+whose difference was zero, so cancelling would require an S-box output difference
+byte of **zero**, which never happens.
+
+**But that only rules out cancelling right after activation.** From round 10 on,
+the difference lives in *both* halves. Now cancelling does **not** need a zero
+output difference — it only needs the S-box output difference byte to *equal* the
+difference byte already sitting there. That happens with probability about
+`1/256`, exactly as the table shows. The original argument confused
+
+> "the S-box never outputs a zero difference"  (true)
+
+with
+
+> "differences can never cancel"  (false — they cancel against a *nonzero*
+> difference).
+
+Because the original trail search only looked for *sparse* trails (one active
+S-box, cancelling immediately), it structurally could not see the trail the real
+attack uses.
+
+### The intended attack
+
+The real characteristic asks for the S-box to be inactive at **rounds 12 and 14**.
+Measured over 10 million pairs, that joint event has probability
+`167/10,000,000 = 1/59,880 ≈ 2^-15.9` — essentially two independent `1/256`
+events. So ~196,000 pairs (768 base plaintexts × 255 one-byte differences) yield
+about 3 **right pairs** (pairs that actually follow the trail).
+
+- **Right pair:** a pair that happens to satisfy the characteristic.
+
+Recovering the key from a right pair uses a big **precomputed table** (~1.08
+billion rows) that, given an observed ciphertext difference, returns the candidate
+S-box input pairs consistent with it. The few remaining unknown middle bytes are
+enumerated subject to the cancellation constraints, and each consistent assignment
+determines all 8 key bytes directly — because once you know an internal S-box
+input **value** and the corresponding ciphertext byte, the key byte is just their
+XOR. Each assignment casts a **vote** for a full 64-bit key; the true key
+accumulates votes from every right pair while wrong keys scatter, so the most
+common vote wins.
+
+### And the "differences hide the key" objection?
+
+It is worth seeing why an apparently fatal objection isn't fatal. At a whitening
+step, if `P' = P ⊕ ΔP`, then
 
 ```
 (P ⊕ W0) ⊕ (P' ⊕ W0) = P ⊕ P' = ΔP.
 ```
 
-The `W0`'s **cancel** (`W0 ⊕ W0 = 0`). So **the whitening key is invisible to
-differences.** In a cipher where the key enters *only* by XOR whitening — exactly
-our cipher, since `R0`/`R1` are keyless — a pure differential can *distinguish*
-the cipher from random but can **never point at the whitening key**, because that
-key never affects any difference. Differences see through the key.
-
-Biham's real attack on standard Khafre gets around this with a **characteristic**
-(a low-probability path through the rounds) that stays "sparse" — only one S-box
-"active" at a time — by *cancelling* S-box outputs against bytes of the other
-half. But that cancellation needs an S-box to output a specific byte (often a
-zero byte). Our special S-box property says **it never outputs a zero-difference
-byte**, and an exhaustive trail search confirmed **no usable sparse path exists**
-for this cipher's exact rotation schedule. So the differential route is a dead
-end here. We need an attack that reads the actual *values*, not just differences.
-
----
+The `W0`'s **cancel**. So the whitening key is genuinely **invisible to
+differences** — a pure differential can distinguish the cipher from random but can
+never point at the key. True. The escape is that the attack does not stop at
+differences: it uses the difference only to *identify right pairs*, then
+reconstructs internal **values** and reads the key off as
+`key = value ⊕ ciphertext byte`. Values, not differences. (Part 4's integral
+attack makes the same move by a different road.)
 
 ## Part 4 — The attack that works: the integral (Square) attack
 
@@ -373,7 +444,10 @@ second.
 
 ---
 
-## Part 6 — The full recovery algorithm (and it runs in ~22 minutes)
+## Part 6 — A full recovery algorithm (~22 minutes)
+
+> This is the first working version. Part 8 improves it to 65,536 queries and
+> ~5 minutes; read this first, since Part 8 builds on it.
 
 Here's the complete recipe, now that every piece is defined. It's implemented in
 `solve_fwht.c`.
@@ -459,8 +533,81 @@ not the `2^40`/`2^64` a naive approach would demand.
 - `sphinx_fast.py` — the same cipher vectorized with NumPy, used for the integral
   measurements.
 - `integral_attack.py` — demonstrates the structural round-11/round-12 balance.
-- `solve_fwht.c` — the fast solver described in Parts 5–6 (~22 min, in RAM).
+- **`solve_integral_opt.c` — the cost-optimal solver of Part 8 (2^16 queries, ~5
+  min).** This is the one to read.
+- `symtrace.py` — derives the S-box chains used by Part 8 symbolically.
+- `solve_fwht.c` — the solver of Parts 5–6 (2^26 queries, ~22 min).
 - `solve.c` — a slower, memory-light fallback using "partial sums" instead of the
   WHT (~90 min), kept for reference.
 - `gen_sboxes.py` / `sboxes.h` — the (key-independent) S-boxes for the C solvers.
 - `SOLUTION.md` — the terse, expert-level version of this same analysis.
+
+---
+
+## Part 8 — Making it as cheap as possible
+
+Parts 3 and 4 give two different working attacks. The best attack comes from
+noticing that they share a single structural fact, and spending it better.
+
+**The fact.** A one-byte perturbation at **byte 6** rides the entire first octet
+without ever touching an S-box (Part 3 measured this: inactive rounds 0–6, first
+active at round 7, in 100% of pairs). The differential attack spends that gift on
+a *probabilistic* trail — it then needs two lucky cancellations (`1/59,880`), so it
+needs ~196,000 pairs to get ~3 usable ones.
+
+**The better use.** That fact is about byte 6, not about differences — so it works
+just as well for **saturation**, and saturation is *deterministic*: no luck needed.
+Saturating byte 6 makes the round-0..6 S-box inputs *constant* across the whole
+set, so an integral on byte 6 inherits the same 7 free rounds.
+
+Measured balance depth (structural — identical for every key):
+
+| saturated bytes | queries | round 10 | round 11 | round 12 |
+|---|---|---|---|---|
+| `{6}` | 256 | all 8 | 4,5,6,7 | — |
+| `{2,6}` | 65,536 | all 8 | all 8 | **4,5,6,7** |
+| `{3,2,6}` | 16,777,216 | all 8 | all 8 | 4,5,6,7 |
+
+So `{2,6}` — **65,536 plaintexts** — reaches exactly the same depth as the
+16.7-million-plaintext set from Part 6. That is a **256× query saving for free**.
+(Of all 28 possible two-byte choices, only `{2,6}` gets there. Using just one byte
+is a round shallower, and that extra round drags in a 5th key byte, which would
+blow the search up to `2^40` — so two bytes is the sweet spot.)
+
+**One set is enough.** A symbolic trace of the four inverse rounds shows all four
+balanced bytes are built from the *same* three quantities `A`, `B`, `D`, with the
+leftover key bytes appearing only *linearly* — and anything linear **cancels** in
+an XOR-sum over an even number of texts (`⊕(C ⊕ W) = ⊕C` when the set size is
+even). Two consequences:
+
+- all four balanced bytes depend on the same four key bytes, and
+- one Walsh–Hadamard transform of the histogram serves *all* of them.
+
+Four balanced bytes × 8 bits = **32 bits of constraint on exactly 32 unknown bits
+from a single set** — so no multi-set intersection is needed at all.
+
+**A faster transform.** Part 5 did the WHT in 64-bit integers modulo the prime
+`2^31 − 1` to stop overflow. That turns out to be unnecessary: just let 32-bit
+arithmetic **wrap around** (which is arithmetic modulo `2^32`, for free). The
+double transform produces `2^24 × answer`, so bit 24 of the wrapped result *is*
+the parity we want. No division, no remainder, and the tables halve to 64 MB —
+which matters because this transform is limited by memory speed, not arithmetic.
+Measured: **119 s instead of 305 s** for the identical computation.
+
+**Result, measured end to end:**
+
+```
+[*] one integral set built: 65536 chosen plaintexts (sat bytes 2,6)
+[*] FWHT stage 229s -> 65719 candidates after 16-bit filter
+[*] verify 2s -> 2 survivor(s)
+[+] survivor whi2=69 wlo2=8a whi0=3b wlo0=e5      <-- the true key bytes
+RECOVERED=110052aee8b317cf TRUE=110052aee8b317cf SUCCESS-FLAG-MATCH  (queries=65536)
+```
+
+**~5 minutes, 65,536 queries** — 1024× fewer queries than Part 6's version and 3×
+fewer than the intended differential attack, with no giant precomputed database
+and a unique answer rather than a majority vote.
+
+The lesson worth keeping: when an attack depends on luck, ask what *structural*
+fact it is spending that luck on — and whether you can spend it deterministically
+instead.

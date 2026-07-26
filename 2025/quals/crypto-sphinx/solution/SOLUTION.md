@@ -47,25 +47,57 @@ three *related* whitening keys (1- and 2-bit rotations of the same 64-bit key).
   difference, the S-box output difference has **all four bytes nonzero** — the
   S-box never emits a zero output-difference byte.
 
-## 2. Why the textbook Khafre differential attack does *not* port
+## 2. The differential route (this **is** the intended solution)
 
-Biham–Shamir break 16-round standard Khafre with ~1500 CP using a sparse
-differential characteristic: a 1-byte difference crosses the first octet for
-free (it lives in the half that doesn't feed the S-box), then the trail is kept
-sparse through the second octet by **byte-cancellations** (forcing an S-box
-output byte to equal a left-half byte). For *this* cipher:
+> **Correction.** An earlier version of this document claimed no usable
+> differential trail exists and that the differential route was a dead end. That
+> was wrong, and the differential attack is in fact the *intended* solution. What
+> follows is the corrected analysis, with measured probabilities.
 
-* The free byte (Δ = `(0, A@byte6)`) does cross R0 rounds 0–6 with the S-box
-  inactive (verified), activating only at **R0 round 7**. Good so far.
-* But at that activation the left half (`hi`) is **all zero**, so the only way to
-  cancel is to force S-box output bytes to **0** — which the permutation S-box
-  **never** produces (proved by exhaustive search: 0 of 255×256 `(A,u)`
-  achieve even a single zero output byte). The difference therefore spreads to 4
-  nonzero bytes and R1 fully diffuses it.
-* Exhaustive trail search confirms: **no usable sparse trail exists** for our
-  rotation schedule (cheapest 2-active-round trail needs an impossible 3-byte
-  cancellation; achievable trails are fully diffused). Differential / last-round
-  counting attacks are therefore **not** the route here.
+Biham–Shamir break 16-round standard Khafre using a characteristic where a
+1-byte difference crosses the first octet for free (it lives in the half that
+doesn't feed the S-box), then is kept sparse by **byte-cancellations**. For this
+cipher, measured over 102,000 pairs with Δ = `(0, A@byte6)`:
+
+* The free byte **does** cross rounds 0–6 with the S-box inactive, activating at
+  **round 7** — in 100% of pairs. So the entire first octet is transparent to it.
+* At rounds **7, 8, 9** the cancellation probability is measured **exactly 0**.
+  Here the original reasoning was right and for the right reason: the difference
+  has just entered a half whose difference was zero, so cancelling would require a
+  **zero S-box output-difference byte**, which 4-independent-permutation S-boxes
+  never emit (0 of 255×256 `(A,u)` produce even one zero output byte).
+* **But that only rules out cancelling *immediately* after activation.** Once the
+  difference has spread into *both* halves, cancelling no longer needs a zero
+  output difference — it only needs the S-box output-difference byte to **equal**
+  the incoming difference byte. Measured per-round inactivity:
+
+  | round | 7–9 | 10 | 11 | 12 | 13 | 14 | 15 |
+  |---|---|---|---|---|---|---|---|
+  | P(inactive) | **0** | 1/262 | 1/257 | 1/248 | 1/248 | 1/254 | 1/245 |
+
+  Over 10^7 pairs, P(round 12 **and** round 14 inactive) = 167/10^7 =
+  **1/59,880 ≈ 2^-15.9** (essentially independent 2^-8 · 2^-8).
+
+The intended attack uses exactly that event: ~196k pairs (768 base texts × 255
+one-byte differences) buy ~3 right pairs. Right pairs are identified with a
+~1.08e9-row precomputed table over
+`ror(SB[i]^SB[j],16) ^ (SB[k]^SB[l]) → (i,j,k,l)`, the remaining middle bytes are
+enumerated under the cancellation constraints, and each consistent assignment
+yields all 8 key bytes directly (`key = internal value ⊕ ciphertext byte`) as a
+**vote**; majority wins.
+
+Note the earlier observation that "differences cancel the whitening key, so a
+differential can't point at the key" is true *of differences alone*, but it is not
+an obstruction: the difference is only used to **filter right pairs**, and the key
+falls out of the reconstructed internal **values** — the same values-not-differences
+move the integral attack makes.
+
+### The structural gift, and how to spend it better
+
+The important discovery underneath the differential is not probabilistic at all:
+**a byte-6 perturbation rides the whole first octet for free.** That fact is about
+byte 6, not about differences — so it applies verbatim to **saturation**, which is
+deterministic. Spending it that way is strictly cheaper; see §4.
 
 ## 3. The route that *does* work: integral (Square) attack
 
@@ -95,7 +127,137 @@ and require the round-12 hi bytes to be balanced. The balanced byte
   *balance* (no linear cancellation), and the function does **not** factor, so a
   cheap meet-in-the-middle is ruled out (verified).
 
-### Fast recovery that runs in ~22 min on a 15 GB / 4-core box (`solve_fwht.c`)
+## 4. The cost-optimal attack (`solve_integral_opt.c`)
+
+This supersedes the earlier order-3 integral. It is built from the *union* of two
+ideas: the structural fact that powers the intended differential attack, and the
+FWHT correlation machinery from the integral attack.
+
+### What the intended differential attack really gave away
+
+The published solution uses a one-byte plaintext difference in **state byte 6**
+(`p2[6] ^= r`). Measured over 102,000 pairs, that difference leaves the S-box
+**inactive for rounds 0–6 and first activates at round 7, in 100% of cases** —
+the whole first octet is transparent to it. The differential attack spends that
+gift on a probabilistic trail (cancellations at rounds 12 and 14, joint
+probability measured **1/59,880 ≈ 2^-15.9**, so ~196k pairs buy ~3 right pairs).
+
+But that "free first octet" is a statement about **byte 6**, not about
+differences. It applies verbatim to *saturation* — and saturation is
+deterministic. That is the whole idea.
+
+### Consequence: an order-2 integral is enough
+
+Saturating state byte 6 keeps the round-0..6 S-box inputs **constant across the
+whole set**, so an integral on byte 6 inherits 7 free rounds. Measured balance
+depth (structural — identical across keys):
+
+| saturated bytes | queries | round 10 | round 11 | round 12 |
+|---|---|---|---|---|
+| `{6}` (order-1) | 256 | all 8 | 4,5,6,7 | — |
+| `{2,6}` (order-2) | 65,536 | all 8 | all 8 | **4,5,6,7** |
+| `{3,2,6}` (order-3) | 16,777,216 | all 8 | all 8 | 4,5,6,7 |
+
+`sat(2,6)` reaches **exactly the same depth as the order-3 set with 256× fewer
+queries**, and a scan of all 28 order-2 pairs shows `(2,6)` is the *only* one that
+gets there. Order-1 is one round shallower, and that extra inversion pulls in a
+5th key byte (`W2_hi1`) → 2^40, so order-2 is the sweet spot.
+
+### One set, 32 bits: all four balanced bytes share one histogram
+
+A symbolic trace of 4 inverse rounds (all rotations are byte-aligned: 24,24,16,16)
+gives, with
+
+```
+A = C_lo2 ^ W2_lo2 ^ S2[H2],   B = C_hi0 ^ W2_hi0,   D = C_lo0 ^ W2_lo0 ^ S0[H2]
+H2 = C_hi2 ^ W2_hi2,           M = D ^ S1[B ^ S1[A]]
+```
+
+the four balanced bytes of round 12:
+
+```
+byte4 = C_hi1 ^ W2_hi1 ^ S2[A] ^ S0[M]        g4 = S2[A] ^ S0[M]
+byte5 = C_hi2 ^ W2_hi2 ^ S3[A] ^ S1[M]        g5 = S3[A] ^ S1[M]
+byte6 = C_hi3 ^ W2_hi3 ^ S0[A] ^ S2[M]        g6 = S0[A] ^ S2[M]
+byte7 = C_hi0 ^ W2_hi0 ^ S1[A] ^ S3[M]        g7 = S1[A] ^ S3[M]
+```
+
+Two things fall out:
+
+1. **The stray key bytes cancel.** `W2_hi1`, `W2_hi3` (and `W2_hi0`, `W2_hi2` in
+   their linear positions) appear only linearly, so over an **even-sized** set they
+   XOR away: `⊕(C ^ W) = ⊕C`. Every balance constant is a pure XOR of ciphertext
+   bytes. That is why all four balanced bytes depend on exactly the same four key
+   bytes `{W2_lo0, W2_lo2, W2_hi0, W2_hi2}` (verified by flipping each key byte).
+2. **All four share the same `(A,B,D)`.** So after peeling `W2_hi2` into a 256-way
+   outer loop, *one* forward FWHT of the histogram serves every bit-plane of every
+   balanced byte. Four bytes = **32 bits of constraint on 32 unknown bits from a
+   single set** — no multi-set intersection needed.
+
+### Faster FWHT: pure uint32, no modular reduction
+
+The earlier solver did the transform in `int64` mod the Mersenne prime `2^31-1`
+to stop intermediates overflowing. That is unnecessary. Let the butterflies wrap
+naturally mod `2^32`:
+
+* `FWHT(FWHT(f)·FWHT(g)) = N·(f*g)` with `N = 2^24`, so the uint32 result is
+  `2^24·(f*g) mod 2^32`, hence `(x >> 24) & 1` **is** the parity we want.
+* No `%` anywhere, and the arrays halve to 64 MB — and a 2^24 FWHT is
+  memory-bandwidth-bound, so that matters.
+
+Measured: **119 s vs 305 s** per set for the identical computation — a **2.6×**
+speedup.
+
+### The algorithm
+
+1. **One** integral set: saturate state bytes 2 and 6 → `2^16 = 65,536` chosen
+   plaintexts. Reuse any member as the known plaintext/ciphertext pair, so the
+   total query cost is exactly `2^16`.
+2. For each of 256 guesses of `W2_hi2`: fold the round-15 S-box outputs into
+   effective ciphertext bytes, build the 2^24 parity histogram, one forward FWHT,
+   then 16 bit-plane inverse FWHTs for balanced bytes 5 and 7 (16 bits) → keep
+   `(W2_lo2, W2_hi0, W2_lo0)` whose correlations match the ciphertext constants.
+3. Verify the ~2^16 survivors with a **real** 4-round inversion over the set,
+   requiring all four balanced bytes to vanish (the other four `W2` bytes can be
+   set to zero — they cancel). Expect one survivor.
+4. Brute the remaining four `W2` bytes (2^32, seconds) against the known pair, then
+   `k0 = rol(W2_lo,2)`, `k1 = rol(W2_hi,2)`, and `D_k(target) = FLAG`.
+
+### Cost — verified end-to-end
+
+```
+[*] precomputed FWHT(g5),FWHT(g7) in 9.5s
+[*] one integral set built: 65536 chosen plaintexts (sat bytes 2,6)
+[*] FWHT stage 229s -> 65719 candidates after 16-bit filter
+[*] verify 2s -> 2 survivor(s)
+[+] survivor whi2=69 wlo2=8a whi0=3b wlo0=e5     <-- the true key bytes
+[+] survivor whi2=d6 wlo2=5d whi0=e6 wlo0=78     <-- 1 spurious, killed by the PC-pair brute force
+RECOVERED=110052aee8b317cf TRUE=110052aee8b317cf SUCCESS-FLAG-MATCH  (queries=65536)
+```
+
+**~5 minutes wall clock, 65,536 queries, 1.7 GB RSS, on a 15 GB / 4-core box.**
+The 16-bit FWHT filter left 65,719 candidates — within 0.3% of the predicted
+`2^24 · 2^-16 · 256 = 65,536` — and the 32-bit verification left 2, exactly the
+expected 1 true + ~1 spurious.
+
+| attack | queries | recovery time | precomputation | result |
+|---|---|---|---|---|
+| order-3 integral (`solve_fwht.c`) | 67,108,864 = 2^26 | ~20 min | 128 MB, 7 s | deterministic |
+| intended differential (gist) | 195,840 ≈ 2^17.6 | — | ~1.08e9-row DB, tens of GB | majority vote |
+| **this (`solve_integral_opt.c`)** | **65,536 = 2^16** | **~5 min** | **2 × 128 MB, 9.5 s** | **deterministic** |
+
+**1024× fewer queries than the order-3 integral and 3× fewer than the intended
+differential attack**, 4× faster than the order-3 version, with a precomputation
+of two in-RAM tables built in 9.5 s rather than a multi-gigabyte database, and a
+unique answer instead of a vote.
+
+A 4-set variant (262,144 queries, `solve_best.c` logic, g5 only) was also run and
+confirmed: `survivors=2 ... SUCCESS-FLAG-MATCH`, 8.7 min. It needs 4× the queries
+for the same result, so the single-set version above supersedes it.
+
+---
+
+### Earlier version: order-3 integral, ~22 min (`solve_fwht.c`)
 
 The 2^40 partial-sums is only needed if you brute the 4 key bytes *jointly*.
 Instead, put **`W2_hi2` in an outer loop (256 values)**. Once `W2_hi2` is fixed,
@@ -180,24 +342,33 @@ i.e. the 64-bit key is recovered from the encryption oracle alone and the flag
 block is decrypted exactly. (The official solution is a Colab notebook; this is
 the same expensive-but-structural integral attack.)
 
-## 4. Files
+## 5. Files
 
 * `sphinx_model.py` — bit-exact verified cipher (`enc_block`/`dec_block`,
   `R_forward/R_inverse`, `SBOXES`). Run `python3 sphinx_model.py` to re-verify.
 * `sphinx_fast.py` — vectorized (numpy) batch encryptor used for measurements.
 * `integral_attack.py` — validates the structural round-11/round-12 integral.
 * `gen_sboxes.py` → `sboxes.h` — the (key-independent) S-boxes for the C solver.
-* `solve.c` — the full attack: `gcc -O3 -march=native -fopenmp -o solve solve.c`
-  then `./solve` (self-contained oracle demo, prints `SUCCESS-FLAG-MATCH`).
+* **`solve_integral_opt.c` — the cost-optimal solver (§4). 2^16 queries, one
+  integral set.** `gcc -O3 -march=native -fopenmp -o solve_opt solve_integral_opt.c`
+  then `./solve_opt`.
+* `symtrace.py` — symbolic byte-level tracer that derives the `g4,g5,g6,g7` chains
+  used by §4 (prints the formula for every state byte after each inverse round).
+* `solve_fwht.c` — previous version: order-3 integral, 2^26 queries, ~22 min.
+* `solve.c` — memory-light partial-sums fallback (2^40, ~90 min).
 
 ### Note on the live server
 
-The attack needs ~`4·2^24 ≈ 6·10^7` chosen-plaintext oracle queries (the integral
-sets). That is practical against a local/fast oracle (as demonstrated) but heavy
-over the remote socket; the recovery itself is offline. The cryptanalysis and
-key recovery are complete and verified.
+The cost-optimal attack needs **2^16 = 65,536** chosen-plaintext queries — one
+integral set, small enough to be practical over a remote socket (the earlier
+order-3 version needed ~6·10^7, which was not). All recovery is offline. The
+cryptanalysis and key recovery are complete and verified.
 
-> Status: **SOLVED.** Integral (Square) attack via the permutation S-boxes.
-> `solve_fwht.c` recovers the 64-bit key + flag in **~22 min on this 15 GB /
-> 4-core box** (3-byte modular-FWHT correlation). `solve.c` is the memory-light
-> partial-sums fallback (~90 min). Both verified end-to-end (`SUCCESS-FLAG-MATCH`).
+> Status: **SOLVED**, cost-optimally. `solve_integral_opt.c` recovers the 64-bit
+> key + flag from **2^16 = 65,536 chosen plaintexts in ~5 min** on a 15 GB /
+> 4-core box — 1024× fewer queries than the earlier order-3 integral and 3× fewer
+> than the intended differential attack, deterministic rather than a vote. Built
+> by spending the differential attack's structural gift (a byte-6 perturbation
+> rides the whole first octet free) on *saturation* instead of a probabilistic
+> trail. Earlier solvers kept for reference: `solve_fwht.c` (2^26 queries,
+> ~22 min), `solve.c` (partial sums, ~90 min). All verified `SUCCESS-FLAG-MATCH`.
