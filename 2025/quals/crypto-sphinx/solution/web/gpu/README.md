@@ -31,6 +31,27 @@ than trusting. The checksum deliberately folds high bits down: FWHT outputs
 accumulate factors of two, so the low bits go to zero and a naive hash would be
 insensitive to exactly the bits the attack reads (bit 24).
 
+## Where it will NOT work (learned the hard way)
+
+- **Android WebView / in-app browsers.** `navigator.gpu` is undefined there, and the
+  host app's CSP is typically `script-src 'unsafe-inline'` with no
+  `wasm-unsafe-eval`, which also blocks `WebAssembly.instantiate`. A real run from a
+  Pixel 9 Pro WebView produced no GPU data and no wasm baseline. The page now
+  detects the WebView user-agent and says so with instructions instead of just
+  reporting two blank sections.
+- **Fallback:** when wasm is blocked the CPU baseline runs as plain JavaScript over
+  a `Uint32Array` instead. Verified bit-identical to the wasm path (same checksum
+  `0x6d2635fe`), about 2.1x slower here (531 ms vs 248 ms), so a GPU speedup
+  measured against it is a *lower bound*. Force this path with `?nowasm=1` to test
+  it.
+- **Undersized devices:** if the adapter reports `maxStorageBufferBindingSize` or
+  `maxBufferSize` below 64 MiB the page stops and prints both numbers rather than
+  running scaled index arithmetic that has never been tested. Send those two
+  numbers and a correctly sized variant can be built.
+
+Use Chrome/Edge proper, ideally on desktop — that is where the 58-minute sweep
+would actually run.
+
 ## Caveats it will surface for you
 
 - `maxStorageBufferBindingSize` baseline is 128 MiB and `maxBufferSize` 256 MiB. The

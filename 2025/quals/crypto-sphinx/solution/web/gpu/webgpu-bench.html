@@ -110,21 +110,45 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>,
 }`;
 
 /* ================= CPU baseline ================= */
+// same xorshift32 the wasm and the GPU upload use, so all three see identical input
+function seedJS(a,n,s){ let x=(s||1)>>>0;
+  for(let i=0;i<n;i++){ x^=x<<13; x>>>=0; x^=x>>>17; x^=x<<5; x>>>=0; a[i]=x; } }
+function fwhtJS(a,n){
+  for(let h=1;h<n;h<<=1)
+    for(let i=0;i<n;i+=h<<1)
+      for(let j=i;j<i+h;j++){ const x=a[j],y=a[j+h]; a[j]=(x+y)>>>0; a[j+h]=(x-y)>>>0; }
+}
+function sumJS(a,n){ let s=0x811c9dc5>>>0;
+  for(let i=0;i<n;i++){ s=(s^a[i])>>>0; s=((s<<5)|(s>>>27))>>>0;
+    s=Math.imul(s,2654435761)>>>0; s=(s^(s>>>15))>>>0; }
+  return s>>>0; }
+
 let cpu={};
 async function cpuBaseline(){
-  log("--- CPU baseline (WebAssembly, single thread) ---");
-  let inst;
-  try{ inst=(await WebAssembly.instantiate(b64(WASM_B64),{})).instance; }
-  catch(e){ log("!! wasm failed to start: "+e); return null; }
-  const E=inst.exports;
-  const t=[];
-  let sum=0;
-  for(let i=0;i<3;i++){
-    E.seed(12345);
-    const a=performance.now(); E.run(LOGN); const d=performance.now()-a;
-    t.push(d); sum=E.checksum(LOGN)>>>0;
+  log("--- CPU baseline (single thread) ---");
+  const noWasm=/[?&]nowasm=1/.test(location.search);
+  let E=null;
+  try{ if(noWasm) throw new Error("forced by ?nowasm=1"); 
+       E=(await WebAssembly.instantiate(b64(WASM_B64),{})).instance.exports; }
+  catch(e){
+    log("~  WebAssembly unavailable here: "+String(e).split("\n")[0]);
+    log("~  falling back to a plain JavaScript transform. It is slower than wasm,");
+    log("~  so treat any GPU speedup below as a LOWER bound on the real one.");
   }
-  cpu={ms:med(t),sum:sum>>>0};
+  const t=[]; let sum=0;
+  if(E){
+    log("  engine: WebAssembly (wasm32 + simd128)");
+    for(let i=0;i<3;i++){ E.seed(12345);
+      const a=performance.now(); E.run(LOGN); t.push(performance.now()-a);
+      sum=E.checksum(LOGN)>>>0; }
+  }else{
+    log("  engine: JavaScript (Uint32Array)");
+    const a=new Uint32Array(N);
+    for(let i=0;i<3;i++){ seedJS(a,N,12345);
+      const b=performance.now(); fwhtJS(a,N); t.push(performance.now()-b);
+      sum=sumJS(a,N); }
+  }
+  cpu={ms:med(t),sum:sum>>>0,engine:E?"wasm":"js"};
   log("  runs: "+t.map(x=>ms(x)).join(", "));
   log("  median: "+ms(cpu.ms)+"   effective bandwidth: "+(GB_NAIVE/(cpu.ms/1000)).toFixed(1)+" GB/s");
   log("  checksum: 0x"+cpu.sum.toString(16).padStart(8,"0"));
@@ -135,7 +159,25 @@ async function cpuBaseline(){
 async function gpuBench(){
   log("");
   log("--- WebGPU ---");
-  if(!navigator.gpu){ log("  navigator.gpu is UNDEFINED — no WebGPU in this browser/context."); return; }
+  const ua=navigator.userAgent;
+  const isWV=/\bwv\b/.test(ua)||/Version\/4\.0/.test(ua);
+  if(!navigator.gpu){
+    log("  navigator.gpu is UNDEFINED — this context has no WebGPU at all.");
+    if(isWV){
+      log("");
+      log("  The user-agent says this is an ANDROID WEBVIEW (in-app browser), not Chrome.");
+      log("  WebGPU is not exposed in WebView, and the host app's CSP also blocked");
+      log("  WebAssembly. Nothing here can measure the GPU.");
+      log("");
+      log("  To get a real number: save this file and open it in Chrome itself");
+      log("  (chrome://flags -> 'Unsafe WebGPU Support' if needed), or on a desktop");
+      log("  with Chrome/Edge 113+. Desktop is the more useful data point anyway,");
+      log("  since that is where the 58-minute sweep would actually run.");
+    }else{
+      log("  Needs Chrome/Edge 113+, Safari 18+, or a recent Firefox with WebGPU enabled.");
+    }
+    return;
+  }
   log("  navigator.gpu present. secureContext="+isSecureContext);
 
   let adapter;
@@ -156,8 +198,15 @@ async function gpuBench(){
 
   const need=N*4;
   log("  buffer needed: "+(need/1048576)+" MiB");
-  if(lim.maxStorageBufferBindingSize<need||lim.maxBufferSize<need)
-    log("  ** buffer larger than a default limit; requesting raised limits **");
+  if(lim.maxStorageBufferBindingSize<need||lim.maxBufferSize<need){
+    log("  ** this device reports limits below "+(need/1048576)+" MiB:");
+    log("       maxStorageBufferBindingSize = "+lim.maxStorageBufferBindingSize);
+    log("       maxBufferSize               = "+lim.maxBufferSize);
+    log("     The shaders here are fixed at N = 2^"+LOGN+". Rather than run scaled");
+    log("     index arithmetic I have not tested, I am stopping. Tell me these two");
+    log("     numbers and I will build a variant sized for this device.");
+    return;
+  }
 
   let dev;
   try{
