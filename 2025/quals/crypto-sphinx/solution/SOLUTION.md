@@ -8,10 +8,12 @@ flag (`target = E_k(FLAG)`), and wins only when you submit `inp` with
 task is **key recovery / single-block decryption** of a chosen-plaintext
 encryption oracle.
 
-> **New to differential cryptanalysis?** Start with **[`DIFFERENTIAL.md`](DIFFERENTIAL.md)**
-> — a hands-on tutorial that uses this challenge as a lab, with a runnable
-> playground (`difflab.py`), measured experiments and exercises. It assumes no
-> crypto background. This document is the terse expert-level analysis.
+> **New to cryptanalysis?** Two hands-on tutorials use this challenge as a lab,
+> both with runnable playgrounds, measured experiments and exercises, and neither
+> assuming any crypto background:
+> **[`DIFFERENTIAL.md`](DIFFERENTIAL.md)** (differential attacks, `difflab.py`) and
+> **[`INTEGRAL.md`](INTEGRAL.md)** (integral/Square attacks, `intlab.py`).
+> This document is the terse expert-level analysis.
 
 ## 1. Reverse engineering the cipher (the hard, *verified* part)
 
@@ -365,6 +367,11 @@ the same expensive-but-structural integral attack.)
   tutorial and playground.** `python3 difflab.py` self-tests; the tutorial's
   experiments are all one-liners against it. `difflab.py` is bit-exact vs
   `sphinx_model.py` (3000 random key/block pairs).
+* **`INTEGRAL.md` + `intlab.py` — hands-on integral (Square) cryptanalysis
+  tutorial and playground.** Symbolic `A`/`C`/`B`/`?` propagation, empirical
+  verification, and `intlab.recover_reduced()` — a complete key recovery against a
+  round-reduced variant that runs in seconds. `python3 intlab.py` self-tests the
+  symbolic rules against measurement.
 * `sphinx_model.py` — bit-exact verified cipher (`enc_block`/`dec_block`,
   `R_forward/R_inverse`, `SBOXES`). Run `python3 sphinx_model.py` to re-verify.
 * `sphinx_fast.py` — vectorized (numpy) batch encryptor used for measurements.

@@ -465,6 +465,12 @@ That's not a knock on differential cryptanalysis. It's how the structural insigh
 was *found*: by working the differential attack until the free ride became
 obvious.
 
+> **Continue here:** [`INTEGRAL.md`](INTEGRAL.md) picks up exactly at this point and
+> teaches integral cryptanalysis properly — the `A`/`C`/`B`/`?` calculus, why the
+> property dies where it does, higher-order sets, and a complete runnable key
+> recovery. It also proves an exact bridge back to this tutorial: the deepest
+> integral round is always `first_active_round + 3`.
+
 ---
 
 ## 10. Exercises
@@ -540,8 +546,10 @@ obvious.
   direct ancestor of the attack here.
 - **The natural sequel:** *linear* cryptanalysis (Matsui) — same spirit, but
   tracking biased linear approximations instead of differences.
-- **The technique that beat it here:** integral / "Square" attacks (Daemen,
-  Knudsen, Rijmen) — differences replaced by structured *sets*, as in §9.
+- **The technique that beat it here:** integral / "Square" attacks — differences
+  replaced by structured *sets*, as in §9. There is a full hands-on follow-up
+  tutorial in this directory: **[`INTEGRAL.md`](INTEGRAL.md)**, with its own
+  playground (`intlab.py`) and a key recovery you can run in seconds.
 
 ### A note on ethics and scope
 

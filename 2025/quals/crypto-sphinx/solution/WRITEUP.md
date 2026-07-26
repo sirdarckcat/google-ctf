@@ -4,11 +4,11 @@
 but no cryptography. Every technical term is defined the first time it appears.
 Take your time; the ideas are simple once unpacked, they're just stacked deep.
 
-> **Want to learn differential cryptanalysis specifically, by doing it?** Read
-> **[`DIFFERENTIAL.md`](DIFFERENTIAL.md)** instead (or first) — it is a hands-on
-> tutorial built around a runnable playground, `difflab.py`, with measured
-> experiments and exercises. This document is the broader walkthrough of the whole
-> challenge.
+> **Want to learn a technique specifically, by doing it?** Two hands-on tutorials
+> built around runnable playgrounds, with measured experiments and exercises:
+> **[`DIFFERENTIAL.md`](DIFFERENTIAL.md)** (`difflab.py`) and
+> **[`INTEGRAL.md`](INTEGRAL.md)** (`intlab.py`, including a key recovery you can
+> run yourself). This document is the broader walkthrough of the whole challenge.
 
 This is the story of solving the `crypto-sphinx` challenge from Google CTF 2025:
 what the puzzle was, the two attacks that break it, and how to make the
