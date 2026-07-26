@@ -80,6 +80,51 @@ and `Access-Control-Allow-Origin` for the cross-origin fetch. Fetch the planes i
 parallel, keep them as int16 and widen during the pointwise multiply, and patch the
 7729 exceptions from the sidecar before first use.
 
+## What SharedArrayBuffer would change
+
+Not what I first assumed. Parallel scaling is **not** the problem: measured with
+startup excluded, independent 2^24 transforms scale 1.81x on two workers and 3.35x
+on four, and the real sweep went 9.90 s/step on one worker to 2.93 s/step on four —
+42 min down to 13 min. Workers already scale fine without SAB.
+
+What SAB actually buys is that it makes precomputation **composable with**
+parallelism. The 512 MB of transformed planes is read-only, so with SAB it is stored
+once; without it, every worker needs its own copy and four workers would want 2 GB
+of planes alone. That is the difference between the two optimisations multiplying
+and being mutually exclusive:
+
+    baseline, 1 worker                       42 min
+    + 4 workers                              13 min   (3.38x, measured)
+    + precomputed planes, no SAB             not possible: 4 x 512 MB
+    + precomputed planes, with SAB          ~6.5 min  (a further 1.94x)
+
+~6.5 min is roughly what the native C solver achieves, which is the point: the
+native advantage *is* shared memory plus shared precomputed tables. SAB is what lets
+a browser do the same thing.
+
+Secondary benefits: the g5/g7 tables (32 MB per worker today) would also be shared,
+and the kernel could use real WASM threads via `-matomics --shared-memory` instead of
+one module instance per worker — tidier, though not faster on its own.
+
+### The catch is hosting
+
+SAB needs `crossOriginIsolated`, which needs two response headers:
+
+    Cross-Origin-Opener-Policy: same-origin
+    Cross-Origin-Embedder-Policy: require-corp
+
+Measured `crossOriginIsolated: false` in every run so far. And:
+
+* **GitHub Pages** cannot set custom headers, so SAB is impossible there.
+* **Plain GCS static hosting** cannot either. You would need GCS behind Cloud CDN or
+  a Load Balancer with a response-header policy, or Firebase Hosting, or Cloud Run.
+* The hosted artifact is iframed and its CSP blocks external hosts, so neither the
+  232 MB asset nor SAB is reachable from it.
+
+Which makes the two answers converge: the same hosting move that lets you serve the
+precomputed planes is the one that can set COOP/COEP — and the planes are only worth
+serving if SAB exists to share them. Do both or neither.
+
 ## The shape of the answer
 
 The precomputable objects are either too cheap to be worth a request (S-boxes,
