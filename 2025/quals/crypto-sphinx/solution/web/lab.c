@@ -125,6 +125,50 @@ EXPORT u32 integral_measure(u32 sat1,u32 sat2,u32 baselo,u32 basehi,u32 k0,u32 k
     return n;
 }
 
+
+/* ---- sub-step trace: what each round does, one operation at a time ---- */
+static u32 SUB[16*10];
+EXPORT u32* sub_ptr(void){return SUB;}
+EXPORT void substep_trace(u32 lo,u32 hi,u32 k0,u32 k1){
+    OUT[0]=lo; OUT[1]=hi;                 /* plaintext */
+    lo^=k0; hi^=k1;
+    OUT[2]=lo; OUT[3]=hi;                 /* after the input whitening */
+    for(int oc=0;oc<2;oc++){
+        if(oc){ lo^=ror(k0,1); hi^=ror(k1,1); }
+        for(int r=0;r<8;r++){
+            int idx=oc*8+r; u32*S=&SUB[idx*10];
+            S[0]=lo; S[1]=hi;                       /* 0: start of round   */
+            u32 b=lo&0xff, so=(oc?SB1[b]:SB0[b]);
+            S[2]=b; S[3]=so;                        /*    S-box in / out   */
+            u32 h2=hi^so;  S[4]=lo; S[5]=h2;        /* 1: after the XOR    */
+            u32 l2=ror(lo,ROT[r]); S[6]=l2; S[7]=h2;/* 2: after the rotate */
+            S[8]=h2; S[9]=l2;                       /* 3: after the swap   */
+            lo=h2; hi=l2;
+        }
+    }
+    OUT[4]=lo^ror(k0,2); OUT[5]=hi^ror(k1,2);       /* ciphertext */
+    OUT[6]=lo; OUT[7]=hi;                           /* before final whitening */
+}
+
+/* ---- avalanche: flip one input bit, watch the damage spread ---- */
+static u32 AVA[17*3];
+EXPORT u32* ava_ptr(void){return AVA;}
+EXPORT void avalanche(u32 lo,u32 hi,u32 k0,u32 k1,u32 bit){
+    u32 lo2=lo,hi2=hi;
+    if(bit<32) lo2^=1u<<(31-bit); else hi2^=1u<<(63-bit);
+    u32 i1[16],a1[16],b1[16],i2[16],a2[16],b2[16];
+    trace16(lo,hi,k0,k1,i1,a1,b1);
+    trace16(lo2,hi2,k0,k1,i2,a2,b2);
+    for(int r=0;r<16;r++){
+        AVA[r*3+0]=a1[r]^a2[r]; AVA[r*3+1]=b1[r]^b2[r];
+        AVA[r*3+2]=__builtin_popcount(a1[r]^a2[r])+__builtin_popcount(b1[r]^b2[r]);
+    }
+    u32 c1l,c1h,c2l,c2h;
+    encrypt(lo,hi,k0,k1,&c1l,&c1h); encrypt(lo2,hi2,k0,k1,&c2l,&c2h);
+    AVA[48]=c1l^c2l; AVA[49]=c1h^c2h;
+    AVA[50]=__builtin_popcount(c1l^c2l)+__builtin_popcount(c1h^c2h);
+}
+
 /* ---- reduced-round cipher + integral key recovery ---- */
 static void enc_reduced(u32 lo,u32 hi,u32 k0,u32 k1,u32 r1,u32*ol,u32*oh){
     lo^=k0; hi^=k1;
