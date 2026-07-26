@@ -180,10 +180,46 @@ async function gpuBench(){
   }
   log("  navigator.gpu present. secureContext="+isSecureContext);
 
-  let adapter;
-  try{ adapter=await navigator.gpu.requestAdapter({powerPreference:"high-performance"}); }
-  catch(e){ log("!! requestAdapter threw: "+e); return; }
-  if(!adapter){ log("  requestAdapter() returned null — no usable adapter."); return; }
+  // context facts that decide whether an adapter is even obtainable
+  log("  in iframe: "+(window.self!==window.top)+"   crossOriginIsolated: "+
+      (typeof crossOriginIsolated!=="undefined"?crossOriginIsolated:"n/a"));
+  try{
+    const f=navigator.gpu.wgslLanguageFeatures;
+    log("  wgslLanguageFeatures: "+(f?("size="+f.size):"n/a"));
+  }catch(e){ log("  wgslLanguageFeatures: threw "+e); }
+  try{ log("  preferredCanvasFormat: "+navigator.gpu.getPreferredCanvasFormat()); }
+  catch(e){ log("  preferredCanvasFormat: threw "+e); }
+
+  // try every adapter configuration before concluding there is none
+  let adapter=null;
+  const tries=[["default (no options)",undefined],
+               ["high-performance",{powerPreference:"high-performance"}],
+               ["low-power",{powerPreference:"low-power"}],
+               ["forceFallbackAdapter",{forceFallbackAdapter:true}]];
+  log("  requestAdapter attempts:");
+  for(const [label,opt] of tries){
+    try{
+      const a=await navigator.gpu.requestAdapter(opt);
+      log("    "+label.padEnd(22)+" -> "+(a?"ADAPTER OK":"null"));
+      if(a&&!adapter) adapter=a;
+    }catch(e){ log("    "+label.padEnd(22)+" -> threw: "+e); }
+  }
+  if(!adapter){
+    log("");
+    log("  Every configuration returned null: WebGPU is present but no adapter is");
+    log("  available in this context. The usual causes, in order of likelihood:");
+    log("");
+    log("   1. Android GPU/driver not yet allowlisted. Chrome ships WebGPU on Android");
+    log("      but gates it per driver. Open chrome://gpu and read the WebGPU line —");
+    log("      it will say why. chrome://flags/#enable-unsafe-webgpu often overrides it.");
+    log("   2. This page is in an iframe"+(window.self!==window.top?" (IT IS — see above)":"")+
+        ". Try opening the URL as its own tab.");
+    log("   3. Hardware acceleration disabled, or a headless/software-only setup.");
+    log("");
+    log("  Desktop Chrome/Edge is the more useful measurement anyway: that is where");
+    log("  the 58-minute sweep would actually run.");
+    return;
+  }
 
   const lim=adapter.limits;
   log("  adapter limits:");
