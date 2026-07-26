@@ -1,0 +1,32 @@
+<!doctype html><meta charset="utf-8"><title>SAB via service worker</title>
+<pre id="o">starting…</pre>
+<script>
+const log=s=>{document.getElementById('o').textContent+="\n"+s;};
+(async()=>{
+  document.getElementById('o').textContent =
+    "crossOriginIsolated : "+self.crossOriginIsolated+
+    "\nSharedArrayBuffer   : "+(typeof SharedArrayBuffer!=="undefined")+
+    "\ncontrolled by SW    : "+!!navigator.serviceWorker.controller;
+  if(!self.crossOriginIsolated){
+    log("\nnot isolated — registering the service worker…");
+    const reg=await navigator.serviceWorker.register("sw.js");
+    await navigator.serviceWorker.ready;
+    if(!navigator.serviceWorker.controller){ log("reloading so the SW controls this page…");
+      location.reload(); return; }
+    log("SW is controlling but still not isolated — reloading once more…");
+    location.reload(); return;
+  }
+  log("\nISOLATED. Testing a real SharedArrayBuffer…");
+  const sab=new SharedArrayBuffer(1<<20);
+  const view=new Int32Array(sab);
+  const w=new Worker(URL.createObjectURL(new Blob([`
+    onmessage=e=>{ const v=new Int32Array(e.data); v[0]=0xC0FFEE;
+      Atomics.store(v,1,42); postMessage("ok"); };`],{type:"application/javascript"})));
+  const ok=await new Promise(r=>{ w.onmessage=()=>r(true); w.onerror=()=>r(false); w.postMessage(sab); });
+  log("worker wrote through the shared buffer: "+ok);
+  log("  view[0] = 0x"+view[0].toString(16)+"   Atomics.load(view,1) = "+Atomics.load(view,1));
+  log("\nRESULT: "+(ok&&view[0]===0xC0FFEE ? "SharedArrayBuffer works on a host that sets NO headers"
+                                           : "shared write FAILED"));
+  document.title="done";
+})().catch(e=>log("!! "+e));
+</script>

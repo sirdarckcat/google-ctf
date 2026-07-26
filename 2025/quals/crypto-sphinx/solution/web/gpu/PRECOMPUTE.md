@@ -1,5 +1,15 @@
 # Is there a precomputable asset worth hosting?
 
+> **Superseded — read this first.** The conclusion below ("232 MB for 1.94x, a good
+> trade on a desktop") rests on the wrong comparison. It weighs downloading the
+> planes against *re-transforming them every step*, when the real alternative is
+> *computing them once and keeping them*. Building all sixteen takes **3.59 s**
+> (`buildplanes.c`), which beats a 4-74 s download outright. The bottleneck was never
+> the arithmetic, it was having 512 MB to keep them in — and a `SharedArrayBuffer`,
+> reachable on any static host via a service worker, solves that instead. See
+> [`../sab/README.md`](../sab/README.md). The size analysis below is still accurate
+> and worth keeping; the recommendation is not.
+
 Short answer: exactly one, and it buys a clean 1.94x on the full sweep for a 232 MB
 download. It does nothing for the lucky button, and it cannot be used from the
 hosted artifact at all.
