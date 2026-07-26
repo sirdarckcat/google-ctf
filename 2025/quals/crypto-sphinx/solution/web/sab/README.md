@@ -51,6 +51,33 @@ against *computing once and keeping them*, and then the download never pays. The
 bottleneck was never the arithmetic — 221 ms per plane — it was having somewhere to
 put 512 MB. Shared memory is the answer, not a CDN.
 
+## Wired into the lab, and measured
+
+`../index.html` + `../sw.js` are the deployable pair; drop both in one directory on any
+static host. Measured on the same machine, one sweep worker, lucky button:
+
+    not isolated   33 transforms/step   ~14 s per step
+    isolated       17 transforms/step    ~7 s per step   + 9 s one-off to build the planes
+
+Verified against a server sending **no** isolation headers, i.e. the GitHub Pages case:
+one automatic reload, then `crossOriginIsolated: true`, `SharedArrayBuffer: true`, and
+the panel reports "cross-origin isolated — shared transform planes on". Full attack
+under isolation completed in 11 s against 21-32 s without, key recovered and target
+decrypted both ways.
+
+Projected for the full 256-step sweep, from two separately measured factors — 3.38x
+across four workers and 1.94x from retained planes:
+
+    1 worker,  no planes    42 min
+    4 workers, no planes    13 min   (measured)
+    4 workers, planes      ~6.4 min  (projected)
+
+The planes are held as int16 in one `SharedArrayBuffer` (512 MB) plus a 75 KB sidecar
+for the 7729 values that do not fit; sign extension reproduces the rest exactly mod
+2^32, which is all the attack reads. The pointwise multiply happens in JS straight
+from the shared buffer into the worker's wasm memory, which avoids needing wasm shared
+memory at all — and replaces a 24-pass transform with a single pass.
+
 ## Caveats
 
 * The first load is not isolated; the page must register the worker and reload once

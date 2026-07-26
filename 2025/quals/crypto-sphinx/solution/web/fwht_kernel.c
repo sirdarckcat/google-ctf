@@ -86,9 +86,29 @@ static u32 verify4(u32 whi2,u32 wlo2,u32 whi0,u32 wlo0){
 }
 
 /* one pass of the real attack for a given W2_hi2; returns candidate count */
+
 /* --- the pass, split into resumable chunks so a browser can yield between them --- */
 static u16 BAL[N24];
 static u32 PC5,PC7,PWHI2;
+
+/* --- retained-plane path ---------------------------------------------------
+   The 16 transformed g5/g7 bit-planes are key-independent and identical for all
+   256 steps, so re-transforming them every step is pure waste. When they are held
+   in a SharedArrayBuffer, JS multiplies H by a plane straight into T and the
+   plane's own transform is skipped: 33 transforms per step becomes 17. */
+EXPORT u32* h_ptr(void){return H;}
+EXPORT u32* t_ptr(void){return T;}
+EXPORT void fwht_t(void){ fwht(T); }
+EXPORT void extract_t(u32 which,u32 bit){
+    u32 sh = bit + (which?8:0);
+    for(u32 i=0;i<N24;i++) if((T[i]>>24)&1u) BAL[i]|=(u16)(1u<<sh);
+}
+/* build one transformed plane into T so JS can copy it out (once, at startup) */
+EXPORT void build_plane_into_t(u32 which,u32 bit){
+    const u8* g = which? g7 : g5;
+    for(u32 i=0;i<N24;i++) T[i]=(g[i]>>bit)&1u;
+    fwht(T);
+}
 
 EXPORT void pass_begin(u32 whi2){
     PWHI2=whi2; PC5=0; PC7=0;
