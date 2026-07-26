@@ -128,50 +128,32 @@ footer{padding:40px 0 64px;color:var(--muted);font-size:14.5px}
   color:var(--faint);border:1px solid var(--line);border-radius:99px;padding:2px 8px}
 .prog{height:3px;background:var(--line);border-radius:2px;overflow:hidden}
 .prog i{display:block;height:100%;background:var(--hot);transition:width .25s}
-.bitgrid{display:flex;gap:11px;flex-wrap:wrap}
-.bgrp{display:flex;flex-direction:column;gap:5px;align-items:center}
-.bits{display:flex;gap:2px}
-.blab{font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;color:var(--faint);
-  transition:color .2s}
-.bgrp.act .blab{color:var(--hot);font-weight:700}
-.bit{width:12px;height:21px;border-radius:2px;background:var(--sunk);
-  border:1px solid var(--line);cursor:pointer;padding:0}
-.bit:hover{border-color:var(--hot)}
-.bit.sel{background:var(--hot);border-color:var(--hot)}
-.avarow{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12px}
-.avarow .lab{color:var(--faint);width:5.6em;text-align:right}
-.sbghost{position:fixed;z-index:60;font-family:var(--mono);font-size:12px;font-weight:700;
-  display:flex;align-items:center;justify-content:center;border-radius:4px;
-  background:var(--cool-bg);color:var(--cool);border:1px solid var(--cool);
-  pointer-events:none;box-shadow:0 2px 10px rgba(0,0,0,.28);
-  transition:transform .54s cubic-bezier(.34,.06,.24,1),opacity .54s ease-in}
-.bcell.xortgt{border-color:var(--cool);box-shadow:0 0 0 2px var(--cool-bg)}
-.rolo{display:flex;gap:14px;align-items:center;margin-top:4px;opacity:.32;
-  transition:opacity .3s;flex-wrap:wrap}
-.rolo.live{opacity:1}
-.rolo-win{position:relative;height:108px;width:224px;overflow:hidden;border-radius:6px;
-  border:1px solid var(--line);background:var(--sunk)}
-.rolo-list{position:absolute;left:0;right:0;top:0;will-change:transform}
-.rolo-row{height:18px;line-height:18px;font-family:var(--mono);font-size:11.5px;
-  color:var(--faint);padding:0 9px;white-space:nowrap}
-.rolo-row.hit{color:var(--cool);font-weight:700}
-.rolo-win::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:2;
-  background:linear-gradient(180deg,var(--sunk) 0%,transparent 24%,transparent 76%,var(--sunk) 100%)}
-.rolo-band{position:absolute;left:0;right:0;top:45px;height:18px;
-  border-top:1px solid var(--cool);border-bottom:1px solid var(--cool);
-  background:var(--cool-bg);opacity:.4;pointer-events:none}
-.rolo-out{font-family:var(--mono);font-size:12px;color:var(--muted);line-height:1.5}
-.rolo-out b{color:var(--cool);font-weight:700;font-size:14px}
-.obytes{display:flex;gap:4px;margin-top:5px}
-.obyte{font-family:var(--mono);font-size:12px;font-weight:600;width:2.3em;text-align:center;
-  padding:4px 0;border-radius:4px;background:var(--cool-bg);color:var(--cool);
-  border:1px solid var(--cool);opacity:.34;transition:opacity .3s}
-.rolo.live .obyte{opacity:1}
-.avatrack{position:relative;flex:1;max-width:360px;height:9px}
-.avabar{height:9px;border-radius:2px;background:var(--hot);min-width:2px;transition:width .3s}
-.avabar.one{background:var(--cool)}
-.avamark{position:absolute;top:-4px;bottom:-4px;left:50%;width:1px;background:var(--faint);opacity:.55}
-.avakey{font-family:var(--mono);font-size:11px;color:var(--faint);margin:2px 0 10px 5.9em}
+.bitpanel{display:flex;flex-direction:column;gap:2px;min-width:min-content}
+.brow{display:flex;align-items:center;gap:11px}
+.blab{font-family:var(--mono);font-size:11px;color:var(--faint);width:5.4em;
+  text-align:right;flex:none;letter-spacing:.03em}
+.brow.hl .blab{color:var(--hot);font-weight:700}
+.bits64{display:flex;gap:1px;flex:none}
+.bits64>span{width:10px;height:13px;border-radius:1px;background:var(--dead-bg)}
+.bits64>span.d{background:var(--hot)}
+.bits64>*:nth-child(8n+1){margin-left:5px}
+.bits64>*:first-child{margin-left:0}
+.bitbtn{width:10px;height:16px;border-radius:2px;font-family:var(--mono);font-size:8.5px;
+  line-height:14px;text-align:center;cursor:pointer;padding:0;color:var(--faint);
+  background:var(--sunk);border:1px solid var(--line)}
+.bitbtn:hover{border-color:var(--hot);color:var(--text)}
+.bitbtn.on{background:var(--hot);color:var(--bg);border-color:var(--hot);font-weight:700}
+.bcount{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap;
+  font-variant-numeric:tabular-nums;flex:none}
+.bcount b{color:var(--hot);font-weight:700}
+.bcount i{color:var(--faint);font-style:normal}
+.bytehdr{display:flex;gap:1px;flex:none}
+.bytehdr>span{width:10px}
+.bytehdr>*:nth-child(8n+1){margin-left:5px}
+.bytehdr>*:first-child{margin-left:0}
+.bytetag{font-family:var(--mono);font-size:9.5px;color:var(--faint);letter-spacing:.05em;
+  width:calc(10px*8 + 7px)!important;text-align:center}
+.bsep{height:1px;background:var(--line);margin:7px 0 5px 0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 
@@ -234,23 +216,37 @@ lo, hi = hi, lo               <em>← swap the halves</em></div>
 </div>
 <div class="bleed"><div class="panel">
   <div class="panel-title"><span>Avalanche — flip one bit, watch it spread</span>
-    <span class="kbd" id="avastat">bit 48</span></div>
-  <div class="bitgrid" id="bgrid" style="margin-bottom:16px"></div>
-  <div id="avarows"></div>
+    <span class="kbd" id="avastat">—</span></div>
+  <div class="ctrls">
+    <div class="ctrl"><label for="avahex">baseline plaintext</label>
+      <input type="text" id="avahex" size="17" maxlength="16" value="0011223344556677"></div>
+    <button id="avarand" class="ghost">random</button>
+    <span class="kbd">click any bit below to flip it</span>
+  </div>
+  <div class="scroll"><div class="bitpanel" id="bitpanel"></div></div>
+  <div class="legend"><span><b class="bits64" style="display:inline-flex;vertical-align:-2px"><span></span></b> same as baseline</span>
+    <span><b class="bits64" style="display:inline-flex;vertical-align:-2px"><span class="d"></span></b> flipped</span></div>
 </div></div>
 <div class="wrap">
-  <p style="margin-top:22px">A good cipher reaches <b>full avalanche</b> — about 32 of 64 bits
-  differing, i.e. output bits behaving like coin flips — and stays there. This one gets there
-  around round 10 and holds.</p>
-  <p>But look at the <i>start</i> of the curve, and try bits in different bytes. A bit in
-  <b>byte 3</b> spreads immediately. A bit in <b>byte 6</b> sits there, alone and untouched, for
-  <b>seven rounds</b> — because it takes that long to reach the one position the S-box reads. Every
-  byte gives a different delay:</p>
+  <p style="margin-top:22px">Each row is the full 64-bit state, one square per bit, marked when it
+  differs from the un-flipped run. Two things to notice.</p>
+  <p>First, once the S-box finally <i>sees</i> the flipped bit, the damage is near-instant: one
+  round takes you from a single square to twenty-odd, and within two rounds about <b>half of all
+  64 bits</b> differ. Half is exactly the target — it means every output bit is behaving like a
+  coin flip — and the cipher sits there for the remaining rounds. That is what a cipher is
+  supposed to do.</p>
+  <p>Second, and far more interesting: watch how long that single square survives <i>before</i>
+  the explosion, and try bits in different bytes. A bit in <b>byte 3</b> spreads immediately. A bit
+  in <b>byte 6</b> sits alone and untouched for <b>seven rounds</b> — because that is how long it
+  takes to reach the one position the S-box reads. Every byte gives a different delay:</p>
   <div class="scroll"><table class="grid" style="margin:14px 0">
     <tr><th>bit in byte</th><th>3</th><th>7</th><th>1</th><th>5</th><th>0</th><th>4</th><th>2</th><th>6</th></tr>
     <tr><td class="rnd">rounds before it spreads</td><td>0</td><td>1</td><td>2</td><td>3</td>
       <td>4</td><td>5</td><td>6</td><td style="color:var(--hot);font-weight:700">7</td></tr>
   </table></div>
+  <p>Press <b>random</b> or type a different baseline: the exact counts move around, because they
+  depend on which plaintext you started from. The <i>delay</i> never moves. It isn't a property of
+  your data — it's a property of the cipher.</p>
   <div class="note">You just found the crack. Both attacks on this page are built on that column
   of sevens — one spends it on luck, the other on certainty.</div>
 </div>
@@ -687,39 +683,70 @@ function togglePlay(){
   }, RM()?260:620);
 }
 
-/* ---------- 01b avalanche ---------- */
-let AVBIT=48;
-function drawBitGrid(){
-  let h="";
-  for(let g=0;g<8;g++){
-    const act=(AVBIT>>3)===g;
-    h+="<div class='bgrp"+(act?" act":"")+"'><div class='bits'>";
-    for(let b=0;b<8;b++){const idx=g*8+b;
-      h+="<button class='bit"+(idx===AVBIT?" sel":"")+"' data-b='"+idx+"' aria-label='flip bit "+idx+" of byte "+g+"'></button>";}
-    h+="</div><div class='blab'>byte "+g+"</div></div>";
+/* ---------- 01b avalanche: every bit, same vs flipped ---------- */
+let AVBIT=48, BASEBITS=[], DIFFCELLS=[], BASEBTNS=[];
+
+function buildBitPanel(){
+  const P=$("#bitpanel"); P.innerHTML=""; DIFFCELLS=[]; BASEBTNS=[];
+  // byte ruler
+  const hdr=document.createElement("div"); hdr.className="brow";
+  hdr.innerHTML="<span class='blab'></span><div class='bytehdr'></div>";
+  const hb=hdr.querySelector(".bytehdr");
+  for(let g=0;g<8;g++){const t=document.createElement("span");
+    t.className="bytetag"; t.textContent="byte "+g; hb.appendChild(t);}
+  P.appendChild(hdr);
+  // clickable baseline, in binary
+  const br=document.createElement("div"); br.className="brow";
+  br.innerHTML="<span class='blab'>plaintext</span>";
+  const bb=document.createElement("div"); bb.className="bits64";
+  for(let i=0;i<64;i++){
+    const t=document.createElement("button");
+    t.className="bitbtn"; t.dataset.b=i; t.setAttribute("aria-label","bit "+i+", byte "+(i>>3));
+    t.onclick=()=>{AVBIT=i;doAva();};
+    bb.appendChild(t); BASEBTNS.push(t);
   }
-  $("#bgrid").innerHTML=h;
-  $("#bgrid").querySelectorAll(".bit").forEach(el=>el.onclick=()=>{AVBIT=+el.dataset.b;drawBitGrid();doAva();});
+  br.appendChild(bb);
+  const bc=document.createElement("span"); bc.className="bcount";
+  bc.id="basecount"; br.appendChild(bc);
+  P.appendChild(br);
+  P.appendChild(Object.assign(document.createElement("div"),{className:"bsep"}));
+  // 17 difference rows
+  for(let r=0;r<17;r++){
+    const row=document.createElement("div"); row.className="brow";
+    row.innerHTML="<span class='blab'>"+(r===0?"input":"after "+(r-1))+"</span>";
+    const g=document.createElement("div"); g.className="bits64"; const cells=[];
+    for(let i=0;i<64;i++){const c=document.createElement("span"); g.appendChild(c); cells.push(c);}
+    row.appendChild(g);
+    const cnt=document.createElement("span"); cnt.className="bcount"; row.appendChild(cnt);
+    P.appendChild(row);
+    DIFFCELLS.push({cells,cnt,row});
+  }
 }
 function doAva(){
-  const [pl,ph]=parseHex16($("#ptx").value), [k0,k1]=keyWords();
+  const [pl,ph]=parseHex16($("#avahex").value);
+  const [k0,k1]=keyWords();
+  // baseline in binary; the flipped bit is the one that differs, so it wears the flip colour
+  for(let i=0;i<64;i++){
+    const w=i<32?pl:ph, bit=(w>>>(31-(i&31)))&1;
+    BASEBTNS[i].textContent=bit;
+    BASEBTNS[i].classList.toggle("on",i===AVBIT);
+  }
+  $("#basecount").innerHTML="<i>bit "+AVBIT+" of byte "+(AVBIT>>3)+" flipped</i>";
   E.avalanche(pl,ph,k0,k1,AVBIT);
   const A=E.ava_ptr()>>>2;
-  let free=0; for(let r=1;r<17;r++){ if(M32[A+r*3+2]===1) free++; else break; }
-  $("#avastat").textContent="bit "+AVBIT+" · byte "+(AVBIT>>3);
-  let h="<div class='avakey'>│ marks 32 of 64 bits — full avalanche, where output bits look like coin flips</div>";
+  let free=0;
   for(let r=0;r<17;r++){
-    const n=M32[A+r*3+2];
-    const lab=r===0?"input":("after "+(r-1));
-    h+="<div class='avarow'><span class='lab'>"+lab+"</span>"+
-       "<div class='avatrack'><div class='avabar"+(n===1?" one":"")+"' style='width:"+
-       Math.max(2,n/64*360)+"px'></div><div class='avamark'></div></div>"+
-       "<span style='color:var(--"+(n===1?"cool":"muted")+")'>"+n+" bit"+(n===1?"":"s")+"</span></div>";
+    const dl=M32[A+r*3], dh=M32[A+r*3+1], n=M32[A+r*3+2];
+    const {cells,cnt,row}=DIFFCELLS[r];
+    for(let i=0;i<64;i++){
+      const w=i<32?dl:dh;
+      cells[i].className=((w>>>(31-(i&31)))&1)?"d":"";
+    }
+    cnt.innerHTML="<b>"+n+"</b> flipped <i>· "+(64-n)+" same</i>";
+    row.classList.toggle("hl",n===1);
+    if(r>0 && n===1 && free===r-1) free=r;
   }
-  h+="<p style='font-family:var(--mono);font-size:12.5px;color:var(--muted);margin:12px 0 0'>"+
-     "one flipped bit in <b style='color:var(--hot)'>byte "+(AVBIT>>3)+"</b> stays alone for <b style='color:var(--hot)'>"+
-     free+"</b> round"+(free===1?"":"s")+" before the S-box notices it.</p>";
-  $("#avarows").innerHTML=h;
+  $("#avastat").textContent="bit "+AVBIT+" · byte "+(AVBIT>>3)+" · alone for "+free+" round"+(free===1?"":"s");
 }
 
 /* ---------- 02 difference trail ---------- */
@@ -846,7 +873,8 @@ function doRecover(){
 /* ---------- boot ---------- */
 WebAssembly.instantiate(b64ToBytes(WASM_B64),{}).then(({instance})=>{
   E=instance.exports; M32=new Uint32Array(E.memory.buffer); M8=new Uint8Array(E.memory.buffer);
-  doEnc(); buildCells(); buildSteps(); SI=0; renderStep(false); drawBitGrid(); doAva();
+  doEnc(); buildCells(); buildSteps(); SI=0; renderStep(false);
+  $("#avahex").value=$("#ptx").value; buildBitPanel(); doAva();
   doTrail(); doIntegral(); newKey();
   $("#bnext").onclick=()=>step(1); $("#bprev").onclick=()=>step(-1);
   $("#bplay").onclick=togglePlay;
@@ -855,7 +883,14 @@ WebAssembly.instantiate(b64ToBytes(WASM_B64),{}).then(({instance})=>{
   $("#zdb").innerHTML="verified live: <b>"+E.zero_diff_bytes(1)+
     "</b> of 65,280 cases produce even one zero byte.";
   ["#ptx","#kx"].forEach(s=>$(s).addEventListener("input",()=>{
-    doEnc();buildSteps();SI=Math.min(SI,STEPS.length-1);renderStep(false);doAva();doTrail();doIntegral();}));
+    doEnc();buildSteps();SI=Math.min(SI,STEPS.length-1);renderStep(false);
+    $("#avahex").value=$("#ptx").value;doAva();doTrail();doIntegral();}));
+  $("#avahex").addEventListener("input",()=>{$("#ptx").value=$("#avahex").value;
+    doEnc();buildSteps();SI=Math.min(SI,STEPS.length-1);renderStep(false);doAva();doTrail();doIntegral();});
+  $("#avarand").onclick=()=>{
+    let h=""; for(let i=0;i<16;i++) h+="0123456789abcdef"[(Math.random()*16)|0];
+    $("#avahex").value=h; $("#ptx").value=h;
+    doEnc();buildSteps();SI=Math.min(SI,STEPS.length-1);renderStep(false);doAva();doTrail();doIntegral();};
   ["#bp","#dv"].forEach(s=>$(s).addEventListener("input",doTrail));
   ["#s1","#s2"].forEach(s=>$(s).addEventListener("change",doIntegral));
   $("#runm").onclick=doMeasure;
