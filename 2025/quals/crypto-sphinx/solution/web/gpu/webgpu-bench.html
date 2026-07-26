@@ -2,8 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>WebGPU FWHT benchmark — sphinx attack kernel</title>
 <style>
+*{box-sizing:border-box}
 :root{color-scheme:dark light}
 body{margin:0;background:#10151b;color:#dde3ea;
   font:15px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:26px}
@@ -14,7 +16,7 @@ button{font:600 13px ui-monospace,Menlo,Consolas,monospace;background:#e89b3c;co
   border:0;border-radius:6px;padding:9px 15px;cursor:pointer;margin-right:8px}
 button.g{background:transparent;color:#dde3ea;border:1px solid #2a333d}
 button:disabled{opacity:.5;cursor:default}
-#log{width:100%;height:60vh;margin-top:14px;background:#0b1015;color:#c9d3dd;
+#log{width:100%;height:56vh;min-height:320px;margin-top:14px;background:#0b1015;color:#c9d3dd;
   border:1px solid #2a333d;border-radius:8px;padding:13px;
   font:12.5px/1.55 ui-monospace,Menlo,Consolas,monospace;white-space:pre;overflow:auto;resize:vertical}
 .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
@@ -26,6 +28,9 @@ button:disabled{opacity:.5;cursor:default}
 <p>Measures a 2<sup>24</sup>-point uint32 Walsh–Hadamard transform — the inner loop of the
 sphinx key-recovery attack — on the GPU, and compares it against a WebAssembly CPU baseline on
 this same machine. Everything, including any WebGPU validation errors, lands in the box below.</p>
+<p style="color:#e89b3c;font-size:13.5px">Runs automatically, then press <b>Copy all output</b>.
+Served as a top-level HTTPS page, so if this still reports no usable adapter, the cause is the
+device or its driver rather than the page context — the log says which and what to check.</p>
 <div class="row">
   <button id="run">Run benchmark</button>
   <button id="copy" class="g">Copy all output</button>

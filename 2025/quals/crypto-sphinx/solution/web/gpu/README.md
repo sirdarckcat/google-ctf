@@ -2,7 +2,10 @@
 
 Two builds of the same probe, both self-contained (no network, no dependencies):
 
-* `webgpu-bench.html` — a complete standalone document, for opening from disk.
+* `webgpu-bench.html` — a complete standalone document: doctype, viewport, wasm
+  inlined as base64, no external references at all. Suitable for opening from disk
+  **or dropping straight into a GitHub Pages repo**, which is the best option: a
+  top-level HTTPS page rules out both of the context problems below in one move.
 * `gpu-bench-artifact.html` — the same page with the document wrapper stripped, for
   publishing as a hosted artifact. Deployed at
   <https://claude.ai/code/artifact/7af5cd78-5f92-489f-b151-771e4f9bddf2>, which is
