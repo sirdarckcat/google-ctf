@@ -1,4 +1,4 @@
-<title>WebGPU FWHT benchmark — sphinx attack kernel</title>
+<title>GPU FWHT benchmark — WebGL2 and WebGPU — sphinx attack kernel</title>
 <style>
 *{box-sizing:border-box}
 :root{color-scheme:dark light}
@@ -18,11 +18,15 @@ button:disabled{opacity:.5;cursor:default}
 #st{font:12px ui-monospace,monospace;color:#e89b3c}
 </style>
 <div class="wrap">
-<h1>WebGPU FWHT benchmark</h1>
+<h1>GPU FWHT benchmark</h1>
 <p>Measures a 2<sup>24</sup>-point uint32 Walsh–Hadamard transform — the inner loop of the
-sphinx key-recovery attack — on the GPU, and compares it against a WebAssembly CPU baseline on
-this same machine. Everything, including any WebGPU validation errors, lands in the box below.</p>
-<p style="color:#e89b3c;font-size:13.5px">Runs automatically. If it reports no usable adapter, the log now says exactly why and what to check.</p>
+sphinx key-recovery attack — on the GPU via <b>both WebGL2 and WebGPU</b>, and compares them
+against a WebAssembly CPU baseline on this same machine. WebGL2 is the one that usually works:
+it is available almost everywhere, whereas WebGPU is still gated per driver on Android.
+Everything, including any driver errors, lands in the box below.</p>
+<p style="color:#e89b3c;font-size:13.5px">Runs automatically, then press <b>Copy all output</b>.
+Served as a top-level HTTPS page, so if this still reports no usable adapter, the cause is the
+device or its driver rather than the page context — the log says which and what to check.</p>
 <div class="row">
   <button id="run">Run benchmark</button>
   <button id="copy" class="g">Copy all output</button>
@@ -106,6 +110,157 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>,
   data[idx] = tile[k];
 }`;
 
+
+
+function projectFrom(best,lin){
+  const NT=33, NL=50;
+  const step=(NT*best.ms+NL*lin)/1000;
+  log("");
+  log("--- projection for the real attack ---");
+  log("  fastest correct variant: "+best.label+" at "+ms(best.ms)+" per transform");
+  log("  one attack step (~"+NT+" transforms"+(lin?" + ~"+NL+" linear passes":"")+"): "+step.toFixed(2)+" s");
+  log("  full 256-step sweep: "+(256*step/60).toFixed(1)+" min");
+  log("  measured CPU here: "+ms(cpu.ms)+" per transform  ->  ~"+
+      (256*NT*cpu.ms/1000/60).toFixed(0)+" min for the sweep, 1 core");
+  log("  speedup on the transform: "+(cpu.ms/best.ms).toFixed(1)+"x"+
+      (cpu.engine==="js"?"  (against the JS baseline, so a lower bound)":""));
+}
+
+/* ================= WebGL2 =================
+   No compute shaders and no shared memory, so the transform runs as a fragment
+   pass per butterfly stage, ping-ponging two RGBA32UI textures. Each texel holds
+   four consecutive elements, which lets stages 0 and 1 happen inside the texel;
+   every later stage fetches one partner texel. GLSL ES 3.00 guarantees uint is
+   32 bits and wraps mod 2^32, so the arithmetic matches the CPU exactly. */
+const GL_W=2048, GL_LOGW=11;          // 2048*2048*4 = 2^24 elements
+const VS=`#version 300 es
+in vec2 p; void main(){ gl_Position=vec4(p,0.0,1.0); }`;
+const FS=`#version 300 es
+precision highp int; precision highp float; precision highp usampler2D;
+uniform usampler2D src; uniform int stage;
+out uvec4 outc;
+void main(){
+  ivec2 xy = ivec2(gl_FragCoord.xy);
+  int t = (xy.y << ${GL_LOGW}) | xy.x;
+  uvec4 own = texelFetch(src, xy, 0);
+  if (stage == 0) {                     // h=1: pairs live inside the texel
+    outc = uvec4(own.x+own.y, own.x-own.y, own.z+own.w, own.z-own.w);
+  } else if (stage == 1) {              // h=2: also inside the texel
+    outc = uvec4(own.x+own.z, own.y+own.w, own.x-own.z, own.y-own.w);
+  } else {                              // h>=4: one partner texel, same components
+    int sh = stage - 2;
+    int pt = t ^ (1 << sh);
+    uvec4 par = texelFetch(src, ivec2(pt & ${GL_W-1}, pt >> ${GL_LOGW}), 0);
+    outc = (((t >> sh) & 1) == 0) ? own + par : par - own;
+  }
+}`;
+
+async function webglBench(){
+  log("");
+  log("--- WebGL2 ---");
+  const cv=document.createElement("canvas");
+  const gl=cv.getContext("webgl2",{antialias:false,depth:false,stencil:false});
+  if(!gl){ log("  webgl2 context unavailable in this browser/context."); return null; }
+  const dbg=gl.getExtension("WEBGL_debug_renderer_info");
+  log("  renderer: "+(dbg?gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER)));
+  log("  vendor:   "+(dbg?gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL):gl.getParameter(gl.VENDOR)));
+  log("  maxTextureSize: "+gl.getParameter(gl.MAX_TEXTURE_SIZE)+
+      "   need "+GL_W+"x"+GL_W);
+  if(gl.getParameter(gl.MAX_TEXTURE_SIZE)<GL_W){ log("  texture too small; stopping."); return null; }
+
+  const glErr=(where)=>{ const e=gl.getError();
+    if(e!==gl.NO_ERROR){ log("!! gl error 0x"+e.toString(16)+" at "+where); return true; } return false; };
+
+  function sh(type,src){
+    const o=gl.createShader(type); gl.shaderSource(o,src); gl.compileShader(o);
+    if(!gl.getShaderParameter(o,gl.COMPILE_STATUS)){
+      log("!! shader compile failed:\n"+gl.getShaderInfoLog(o)); return null; }
+    return o;
+  }
+  const vs=sh(gl.VERTEX_SHADER,VS), fs=sh(gl.FRAGMENT_SHADER,FS);
+  if(!vs||!fs) return null;
+  const prog=gl.createProgram(); gl.attachShader(prog,vs); gl.attachShader(prog,fs);
+  gl.linkProgram(prog);
+  if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){ log("!! link failed:\n"+gl.getProgramInfoLog(prog)); return null; }
+  gl.useProgram(prog);
+  const uStage=gl.getUniformLocation(prog,"stage"), uSrc=gl.getUniformLocation(prog,"src");
+
+  const quad=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+  const loc=gl.getAttribLocation(prog,"p");
+  gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+  const host=new Uint32Array(N);
+  seedJS(host,N,12345);
+
+  function mkTex(data){
+    const t=gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D,t);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32UI,GL_W,GL_W,0,gl.RGBA_INTEGER,gl.UNSIGNED_INT,data);
+    return t;
+  }
+  let A=mkTex(host), B=mkTex(null);
+  if(glErr("texture upload")) return null;
+  const fbo=gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,B,0);
+  const st=gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+  if(st!==gl.FRAMEBUFFER_COMPLETE){
+    log("!! framebuffer incomplete (0x"+st.toString(16)+") — RGBA32UI not renderable here.");
+    return null;
+  }
+  gl.viewport(0,0,GL_W,GL_W);
+
+  const px1=new Uint32Array(4);
+  const drain=()=>{ gl.readPixels(0,0,1,1,gl.RGBA_INTEGER,gl.UNSIGNED_INT,px1); };
+  const times=[]; let sum=null;
+  for(let it=0;it<4;it++){
+    gl.bindTexture(gl.TEXTURE_2D,A);
+    gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,GL_W,GL_W,gl.RGBA_INTEGER,gl.UNSIGNED_INT,host);
+    gl.finish(); drain();               // make sure nothing earlier is still in flight
+    const t0=performance.now();
+    let src=A,dst=B;
+    for(let stage=0;stage<LOGN;stage++){
+      gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,dst,0);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,src);
+      gl.uniform1i(uSrc,0); gl.uniform1i(uStage,stage);
+      gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+      const tmp=src; src=dst; dst=tmp;
+    }
+    // gl.finish() alone returns once the command buffer is flushed, not once the GPU
+    // is done, so time is measured to a synchronous 1x1 readback instead.
+    gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,src,0);
+    gl.finish(); drain();
+    times.push(performance.now()-t0);
+    if(glErr("draw loop")) return null;
+    if(it===0){
+      gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,src,0);
+      const out=new Uint32Array(N);
+      gl.readPixels(0,0,GL_W,GL_W,gl.RGBA_INTEGER,gl.UNSIGNED_INT,out);
+      if(glErr("readPixels")) return null;
+      sum=sumJS(out,N);
+    }
+  }
+  const m=med(times);
+  log("  runs: "+times.map(x=>ms(x)).join(", "));
+  log("  median "+ms(m)+"   "+(GB_NAIVE/(m/1000)).toFixed(0)+" GB/s effective");
+  const ok=sum===cpu.sum;
+  log("  checksum 0x"+sum.toString(16).padStart(8,"0")+
+      (ok?"   ✓ MATCHES CPU — transform is correct"
+         :"   ✗ DOES NOT MATCH CPU — result is WRONG, ignore the timing"));
+  log("  note: 24 fragment passes; no shared memory in WebGL2, so this cannot do the");
+  log("        8-stages-per-pass blocking a WebGPU compute shader would.");
+  return {label:"WebGL2 fragment passes",ms:m,ok};
+}
+
 /* ================= CPU baseline ================= */
 // same xorshift32 the wasm and the GPU upload use, so all three see identical input
 function seedJS(a,n,s){ let x=(s||1)>>>0;
@@ -153,7 +308,7 @@ async function cpuBaseline(){
 }
 
 /* ================= GPU ================= */
-async function gpuBench(){
+async function gpuBench(webglResult){
   log("");
   log("--- WebGPU ---");
   const ua=navigator.userAgent;
@@ -215,6 +370,7 @@ async function gpuBench(){
     log("");
     log("  Desktop Chrome/Edge is the more useful measurement anyway: that is where");
     log("  the 58-minute sweep would actually run.");
+    if(webglResult&&webglResult.ok) projectFrom(webglResult,0);
     return;
   }
 
@@ -350,7 +506,8 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(num_workgroups) nw
   // ---- projection ----
   log("");
   log("--- projection for the real attack ---");
-  const best=[r1,r2].filter(r=>r&&r.ok).sort((a,b)=>a.ms-b.ms)[0];
+  void 0;
+  const best=[r1,r2,webglResult].filter(r=>r&&r.ok).sort((a,b)=>a.ms-b.ms)[0];
   if(!best){ log("  no variant produced a correct result; not projecting."); }
   else{
     const lin=rm?rm.ms:0;
@@ -379,7 +536,8 @@ async function main(){
   log("");
   try{
     await cpuBaseline();
-    await gpuBench();
+    const wg=await webglBench();
+    await gpuBench(wg);
   }catch(e){ log("!! fatal: "+(e&&e.stack||e)); }
   log("");
   log("--- end of report ---");
