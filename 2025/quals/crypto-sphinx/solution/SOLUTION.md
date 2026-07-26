@@ -95,6 +95,43 @@ and require the round-12 hi bytes to be balanced. The balanced byte
   *balance* (no linear cancellation), and the function does **not** factor, so a
   cheap meet-in-the-middle is ruled out (verified).
 
+### Fast recovery that runs in ~22 min on a 15 GB / 4-core box (`solve_fwht.c`)
+
+The 2^40 partial-sums is only needed if you brute the 4 key bytes *jointly*.
+Instead, put **`W2_hi2` in an outer loop (256 values)**. Once `W2_hi2` is fixed,
+the round-15 S-box outputs `s2,s0` (functions of `X6 = C_hi2 ⊕ W2_hi2`) fold into
+**effective ciphertext bytes** `u2 = C_lo2⊕s2`, `u0 = C_lo0⊕s0`, and what's left is
+a **fixed** 3-byte S-box chain
+`g5(A,B,D) = byte3(SB1[A]) ⊕ byte1(SB1[D ⊕ byte1(SB1[B ⊕ byte1(SB1[A])])])`
+with `A=u2⊕W2_lo2, B=C_hi0⊕W2_hi0, D=u0⊕W2_lo0`. So
+
+```
+balance5(w) = C6 ⊕ ⊕_{c∈H} g5(c ⊕ w)        w = (W2_lo2, W2_hi0, W2_lo0)
+```
+
+is a **clean 3-byte XOR-correlation over 2^24** — one **Walsh–Hadamard transform**
+(mod the Mersenne prime 2^31−1 to avoid int64 overflow) gives all 2^24 keys at
+once. `2^24·int64 = 128 MB`, so it fits easily. Per `W2_hi2`: 1 forward + 8
+bit-plane inverse FWHTs; the whole 256×(2^24 FWHT) sweep is **~5 min per integral
+set on 4 cores**. Four sets, AND their candidate bitmaps → the unique 4 bytes
+`{W2_lo0,W2_lo2,W2_hi0,W2_hi2}`, brute the other 4 `W2` bytes (2^32, ~seconds)
+against one known plaintext/ciphertext pair, then `k0=rol(W2_lo,2)`,
+`k1=rol(W2_hi,2)`, `D_k(target)=FLAG`.
+
+Verified end-to-end on this 15 GB / 4-core sandbox:
+
+```
+[*] set 0..3 FWHT done ~305s each   (4 * ~5 min)
+[+] survivor whi2=69 wlo2=8a whi0=3b wlo0=e5   (= the true key bytes, unique)
+RECOVERED=110052aee8b317cf  TRUE=110052aee8b317cf  SUCCESS-FLAG-MATCH
+```
+
+Total ≈ **22 min**, entirely in RAM. (Queries here are 4·2^24 ≈ 67M; they drop to
+**one** set ≈ 16M by also correlating balanced bytes 4 and 7 — same `{0,2,4,6}` key
+bytes, 32-bit constraint → unique from a single set — at the cost of the `g4,g7`
+tables.) This is the intended sub-hour solve; `solve.c` (partial-sums) is the
+memory-light-but-slow fallback.
+
 ### Making it cheaper (query + compute analysis)
 
 **Queries — 1 set, not 4.** All four round-12 balanced bytes (4,5,6,7) depend on
@@ -104,21 +141,13 @@ affects the *value*). So a **single** order-3 set gives 4 balance equations = 32
 bits of constraint on those 32 unknown bits → the 4 bytes are unique from **one
 set (~16M CP)**, a 4× query reduction over the 4-set version in `solve.c`.
 
-**Compute — it's a clean XOR-correlation.** The balanced byte is
-`b5 = g(c ⊕ w)` where `g` is a *fixed, key-independent* 4-byte S-box chain and the
-4 key bytes are plain XOR offsets into 4 ciphertext bytes. Hence
-`balance(w) = ⊕_{c∈H} g(c⊕w)` is a **4-byte XOR-correlation**, computable for all
-2^32 keys at once with a **Fast Walsh–Hadamard transform** (2^32 work, needs a
-2^32·int32 ≈ 16 GB table). That is the intended sub-hour recovery on a machine
-with enough RAM/cores.
-
-**No sub-2^32 attack exists here.** The round-12 balance irreducibly mixes all 4
-key bytes: fixing `W2_hi2` does *not* leave a clean 3-byte correlation (the
-round-15 S-box output `s0,s2` becomes a per-ciphertext constant inside `g`), so it
-can't be split into cheaper transforms. On this 15 GB / 4-core sandbox the FWHT
-OOMs, so `solve.c` uses the memory-light **partial-sums fallback (2^40, ~90 min)**;
-on ≥16 GB with more cores it's the FWHT (~minutes) → the whole attack (queries +
-recovery) is well under an hour.
+**Compute — it's a clean XOR-correlation.** `balance(w) = ⊕_{c∈H} g(c⊕w)`, and
+the trick (see `solve_fwht.c` above) is to put `W2_hi2` in a 256-way outer loop:
+the round-15 S-box outputs then fold into *effective* ciphertext bytes, leaving a
+**fixed 3-byte chain** `g5` and a genuinely clean **3-byte XOR-correlation** solved
+by a **2^24 FWHT (128 MB, fits any box)**. So the recovery is ~2^33 total, ~22 min
+on this 4-core sandbox — no 16 GB table needed. (A single monolithic 4-byte FWHT
+*would* need 16 GB; the 3-byte-per-`W2_hi2` factorization avoids that.)
 
 ### Key-recovery: implemented and **SOLVED** (`solve.c`)
 
@@ -168,7 +197,7 @@ sets). That is practical against a local/fast oracle (as demonstrated) but heavy
 over the remote socket; the recovery itself is offline. The cryptanalysis and
 key recovery are complete and verified.
 
-> Status: **SOLVED.** Cipher reverse-engineered + bit-exact verified; integral
-> attack (round-12 balance via the permutation S-boxes) implemented in `solve.c`,
-> recovering the 64-bit key from the encryption oracle and decrypting the flag
-> block (`SUCCESS-FLAG-MATCH`, ~90 min on 4 cores).
+> Status: **SOLVED.** Integral (Square) attack via the permutation S-boxes.
+> `solve_fwht.c` recovers the 64-bit key + flag in **~22 min on this 15 GB /
+> 4-core box** (3-byte modular-FWHT correlation). `solve.c` is the memory-light
+> partial-sums fallback (~90 min). Both verified end-to-end (`SUCCESS-FLAG-MATCH`).
