@@ -118,6 +118,14 @@ since `k0=rol(W2_lo,2)`, `k1=rol(W2_hi,2)`), partially **invert the tail rounds
 of `R1`** (no key in the rounds themselves, only `W2` at the very end), and keep
 the guess for which the integral balance still holds.
 
+> **Round-numbering convention.** This document labels an integral state by its
+> *state index*: "round 12 balanced" means the state **after round 11** (0-indexed
+> rounds 0..15), i.e. what you get by inverting 4 rounds from the ciphertext. The
+> tutorials ([`INTEGRAL.md`](INTEGRAL.md), [`DIFFERENTIAL.md`](DIFFERENTIAL.md)) and
+> `intlab.py` use the unambiguous "**after round N**" instead. So this document's
+> "round 12 hi-half balanced" is the tutorials' "bytes 4–7 balanced after round 11".
+> Same fact, offset by one.
+
 ### Confirmed integral (validated, key-independent / structural)
 
 An **order-3** integral — saturate state bytes `{3,2,6}` (= `lo[3],lo[2],hi[2]`),
