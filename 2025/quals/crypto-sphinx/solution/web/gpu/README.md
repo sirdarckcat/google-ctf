@@ -99,6 +99,51 @@ would actually run.
   `pushErrorScope`/`popErrorScope` around pipeline creation and each submit, and
   `window.onerror` / `unhandledrejection`. Shader compilation messages are printed.
 
+## Result: measured on real hardware
+
+Pixel 9 Pro, ARM Mali-G715, Chrome 151 on Android, served top-level over HTTPS:
+
+    CPU  (wasm32+simd128)   295.5 ms per 2^24 transform    10.9 GB/s effective
+    WebGL2  median          125.8 ms                       25.6 GB/s    2.3x
+    WebGL2  steady state     98.1 ms                       32.8 GB/s    3.0x
+    checksum                 MATCHES the CPU exactly -- the transform is correct
+
+The four runs were 125.8, 146.0, 98.5, 98.1 ms, so the median understates it; the
+last two are the warmed-up figure and 3.0x is the fairer number.
+
+Projected onto the attack (33 transforms per step, 256 steps):
+
+    WebGL2   3.2-4.2 s per step   ->  14-18 min for the full sweep
+    CPU      9.8 s per step       ->  ~42 min
+
+**WebGPU was unavailable on this device.** All four adapter configurations returned
+null, including `forceFallbackAdapter`, and that held both when the page was
+top-level (`in iframe: false`) and when iframed. Comparing those two runs is what
+settles it: the cause is Android driver gating for the Mali-G715, not the page
+context. So the 8x that workgroup-memory blocking would have bought is simply not
+reachable here.
+
+### Why only 3x, when the transform is pure bandwidth
+
+Because a phone has **unified memory**. The CPU measured 10.9 GB/s and the GPU
+32.8 GB/s *against the same LPDDR bus*, so the GPU is not tapping a separate,
+faster pool the way a desktop card with its own GDDR would — it is just saturating
+the shared bus more efficiently. On a discrete GPU at 300-1000 GB/s the same kernel
+should be far ahead of the ~10 GB/s a single CPU core achieves, which is exactly
+the measurement still missing.
+
+### Would wiring this into the lab be worth it
+
+Probably not, and the reason is the rest of the step rather than the transform.
+Only the 33 transforms are GPU-friendly. The parity histogram is a scatter, and
+WebGL2 has neither atomics nor an XOR blend equation, so it would have to be built
+on the CPU and uploaded (64 MiB per step, perhaps 10 ms -- tolerable). Moving just
+the transforms while leaving the linear passes on the CPU would require a 64 MiB
+readback per transform, which would cost more than the transform saves. So it is
+all-or-nothing: the whole step has to live on the GPU for a 3x that only applies to
+the sweep the lab already treats as the expensive path. The headline experience,
+the lucky button, finishes in 21-26 s without any of this.
+
 ## Reference numbers from the build sandbox (CPU only, 4 cores, no GPU)
 
     isolated 2^24 transform      ~197 ms   (~16 GB/s effective)
