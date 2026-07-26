@@ -377,9 +377,12 @@ the same expensive-but-structural integral attack.)
   `sphinx_model.py` (3000 random key/block pairs).
 * **`INTEGRAL.md` + `intlab.py` — hands-on integral (Square) cryptanalysis
   tutorial and playground.** Symbolic `A`/`C`/`B`/`?` propagation, empirical
-  verification, and `intlab.recover_reduced()` — a complete key recovery against a
-  round-reduced variant that runs in seconds. `python3 intlab.py` self-tests the
-  symbolic rules against measurement.
+  verification, and a four-rung ladder of working attacks:
+  `recover_reduced()` (naive enumeration on a round-reduced cipher, `2^8`/`2^16`,
+  seconds), `recover_full_given_byte()` (**the real 16-round cipher** via a numpy
+  FWHT, `2^24`, ~40 s), and `solve_integral_opt.c` itself (`2^32`, ~5 min).
+  `python3 intlab.py` self-tests the symbolic rules against measurement *and*
+  checks the full-cipher recovery.
 * `sphinx_model.py` — bit-exact verified cipher (`enc_block`/`dec_block`,
   `R_forward/R_inverse`, `SBOXES`). Run `python3 sphinx_model.py` to re-verify.
 * `sphinx_fast.py` — vectorized (numpy) batch encryptor used for measurements.

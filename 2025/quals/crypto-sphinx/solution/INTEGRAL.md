@@ -323,8 +323,29 @@ The test: guess → partially decrypt every text in the set → XOR the bytes th
 *should* be balanced. Right guess ⇒ zero, guaranteed. Wrong guess ⇒ zero only by
 luck, `1/256` per byte checked.
 
-Let's do it for real. To keep it runnable in pure Python, shorten the second octet
-(`enc_reduced`), then attack:
+### Why a round-reduced cipher for the demo?
+
+Not because the real attack is out of reach — **the full 16-round attack runs on a
+laptop in about five minutes**, and you'll run it in §7. The reduced variant exists
+for a narrower reason: it is the largest version where the *naive* method —
+literally enumerate every key guess and test it — still finishes in a REPL.
+
+Naive enumeration on the real cipher needs `2^32` guesses, which is hopeless in
+Python. Making that step efficient needs a genuinely different idea (a
+Walsh–Hadamard transform), and that idea is much easier to appreciate *after*
+you've watched the simple version work. So the ladder is:
+
+| rung | cipher | method | cost | runs in |
+|---|---|---|---|---|
+| 1 | 12 rounds | naive enumeration | `2^8` | < 1 s, pure Python |
+| 2 | 13 rounds | naive enumeration | `2^16` | ~11 s, pure Python |
+| 3 | **full 16** | FWHT, one key byte given | `2^24` | ~40 s, numpy |
+| 4 | **full 16** | FWHT, full search | `2^32` | ~4–6 min, C |
+
+Every rung attacks a real cipher with the real property. Only the *search method*
+changes.
+
+### Rung 1 and 2: naive enumeration
 
 ```python
 I.recover_reduced(r1_rounds=4, sat=(6,))
@@ -353,6 +374,42 @@ I.recover_reduced(r1_rounds=5, sat=(6,))
 # survivors: 1
 # found    : YES        (11.4 s)
 ```
+
+### Rung 3: the real cipher, in numpy
+
+Now the actual 16-round cipher. The only concession: you're handed one of the four
+key bytes (`W2_hi2`), which is exactly the byte the C solver puts in its 256-way
+outer loop. Everything else — the set, the property, the transform — is the real
+attack.
+
+```python
+I.recover_full_given_byte()
+```
+
+```
+full 16-round cipher, 65536 chosen plaintexts (saturate bytes 2,6)
+given W2_hi2 = 16
+candidates for (W2_lo2, W2_hi0, W2_lo0): 65747 out of 2^24
+truth = ad86eb   present: YES
+```
+
+**~40 seconds**, and it just cut `2^24` candidates down to `2^16` containing the
+true key — a search no amount of Python `for` loops would have finished. What made
+that possible:
+
+```
+balance(w) = ⊕ over the set of  g5(c ⊕ w)
+```
+
+is an **XOR-correlation**: a fixed table `g5` slid against your data by every
+possible XOR-offset `w`. The Walsh–Hadamard transform evaluates it for **all**
+`2^24` offsets at once, exactly as an FFT does for ordinary convolution. Three
+transforms per bit-plane and you have every answer.
+
+One implementation detail worth stealing (`_fwht_u32`): let 32-bit arithmetic
+**wrap around** rather than reducing modulo a prime. `FWHT(FWHT(f)·FWHT(g))` equals
+`N × (f ⊛ g)`, and with `N = 2^24` the parity you want sits at bit 24 of the
+wrapped result. No division, no modulus, half the memory.
 
 ### The cost ladder
 
@@ -386,40 +443,59 @@ impostor).
 
 ---
 
-## 7. Scaling up to the real 16-round cipher
+## 7. Rung 4 — run the real attack yourself
 
-Put the pieces together for the full cipher:
+Rung 3 handed you one key byte. Removing that crutch is the whole difference
+between numpy and C: you must repeat the transform for all 256 values of
+`W2_hi2`, which is 256 × the work. That's ~5 minutes in C, and it would be a
+couple of hours in numpy — so the solver is C, not because the attack is heavy,
+but because a factor of 256 is worth an hour of your afternoon.
 
-- Order-2 set `{2,6}`: **65,536** queries, bytes 4–7 balanced after round 11
-  (measured).
-- Ciphertext is after round 15, so we invert **4** rounds.
-- From the ladder: 4 rounds ⇒ **4 key bytes** ⇒ `2^32` guesses.
+Putting it together for the full cipher:
 
-`2^32` is too many to enumerate the way `recover_reduced` does. So the real solver
-changes *how* it searches rather than what it searches for. In outline:
+- Order-2 set `{2,6}`: **65,536** queries, bytes 4–7 balanced after round 11.
+- Ciphertext is after round 15, so invert **4** rounds ⇒ **4 key bytes** ⇒ `2^32`.
+- Peel `W2_hi2` into a 256-way outer loop; each iteration is exactly the `2^24`
+  transform you ran in rung 3.
+- All four balanced bytes share one histogram, so a single forward transform
+  serves them all: 32 bits of filtering from one set — enough to pin 32 unknown
+  bits without a second set.
 
-1. Peel the **first** of the 4 key bytes into a 256-way outer loop. Once it's
-   fixed, the round-15 S-box outputs are known per ciphertext and fold into
-   "effective ciphertext bytes".
-2. What's left is `balance(w) = ⊕ over the set of g(c ⊕ w)` for a **fixed** table
-   `g` and the 3 remaining key bytes `w` — a *correlation*, computable for **all**
-   `2^24` values of `w` at once with a **Walsh–Hadamard transform** (the XOR
-   analogue of an FFT).
-3. All four balanced bytes share the same histogram, so one transform serves them
-   all: 32 bits of filtering from a single set.
+**Build and run it:**
 
-Result, measured end to end (`solve_integral_opt.c`):
+```bash
+gcc -O3 -fopenmp -o solve_opt solve_integral_opt.c    # -march=native optional
+./solve_opt
+```
 
 ```
 [*] one integral set built: 65536 chosen plaintexts (sat bytes 2,6)
 [*] FWHT stage 229s -> 65719 candidates after 16-bit filter
 [*] verify 2s -> 2 survivor(s)
+[+] survivor whi2=69 wlo2=8a whi0=3b wlo0=e5     <- the true key bytes
+[+] survivor whi2=d6 wlo2=5d whi0=e6 wlo0=78     <- one impostor, as predicted
 RECOVERED=110052aee8b317cf TRUE=110052aee8b317cf SUCCESS-FLAG-MATCH  (queries=65536)
 ```
 
-**65,536 queries, ~5 minutes.** For contrast, the intended *differential* attack
-needs ~195,840 pairs and a billion-row precomputed table. Details in
-[`SOLUTION.md`](SOLUTION.md) §4.
+**What it needs:** any machine with a C compiler, OpenMP, and ~2 GB of RAM.
+Measured on 4 cores, both builds run end to end to `SUCCESS-FLAG-MATCH`:
+
+| build | FWHT stage | total | peak RSS |
+|---|---|---|---|
+| `-O3 -fopenmp` (portable) | 321 s | ~5.6 min | 1.74 GB |
+| `-O3 -march=native -fopenmp` | 229 s | ~4.1 min | 1.74 GB |
+
+So `-march=native` buys about 1.4×; it is a nicety, not a requirement. Memory is
+`1 GB` of shared precomputed tables plus ~160 MB per thread, so on a many-core
+laptop cap it with `OMP_NUM_THREADS=4` if RAM is tight.
+
+Note the two survivors: with `m = 4` key bytes and `b = 4` balanced bytes, §6's
+arithmetic predicts `2^(32-32) ≈ 1` impostor alongside the truth. The final
+brute-force over the remaining `W2` bytes, checked against one known
+plaintext/ciphertext pair, eliminates it.
+
+For contrast, the intended *differential* attack needs ~195,840 pairs and a
+billion-row precomputed table. Full details in [`SOLUTION.md`](SOLUTION.md) §4.
 
 ---
 
@@ -467,6 +543,13 @@ Rules of thumb worth carrying away:
 7. **Do it yourself.** Run `I.recover_reduced(r1_rounds=4)` a few times with
    different random keys. Does it always give exactly one survivor? Explain the
    count using §6's filtering arithmetic.
+8. **Why is rung 4 in C?** Rung 3 (`recover_full_given_byte`) attacks the real
+   cipher in numpy in ~40 s. Rung 4 does the same thing 256 times. Estimate the
+   numpy runtime, and decide for yourself whether the rewrite is worth it.
+9. **Drop the crutch.** `recover_full_given_byte` is handed `W2_hi2`. What goes
+   wrong if you pass a *wrong* value — do you get no candidates, or the usual
+   `~2^16`? Try `I.recover_full_given_byte(whi2=(true^1))` and explain the result
+   in terms of §6's filtering arithmetic.
 
 ### Solutions
 
@@ -511,6 +594,17 @@ Rules of thumb worth carrying away:
    an impostor essentially never appears. Contrast the full attack, where
    `m = b = 4` gives `2^0 ≈ 1` expected impostor — and indeed the real solver
    reports 2 survivors.
+8. About `256 × 40 s ≈ 2.8 hours` in numpy, versus ~5 minutes in C. The algorithm
+   is identical; only the constant factor differs. Rewriting is worth it here, but
+   note the *right* order of work: prototype the transform in numpy until it is
+   provably correct, then port. (That is exactly how `solve_integral_opt.c` was
+   built.)
+9. You get the usual `~2^16` candidates — just without the true key among them.
+   The filter is statistical: any `w` whose correlation happens to match passes,
+   and a wrong `W2_hi2` produces an effectively random correlation, so about
+   `2^24 / 2^8 = 2^16` values still survive by chance. That is precisely why the
+   full attack must check all 256 outer values and then verify: "the candidate
+   count looks right" is *not* evidence that the key is in there.
 
 ---
 

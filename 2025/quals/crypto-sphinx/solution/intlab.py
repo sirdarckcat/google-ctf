@@ -387,6 +387,121 @@ def recover_reduced(r1_rounds=3, sat=(6,), key=None, verbose=True):
 
 
 # ==========================================================================
+# 4. THE REAL THING -- full 16-round cipher, via a Walsh-Hadamard transform
+# ==========================================================================
+def _fwht_u32(a):
+    """
+    In-place-ish Fast Walsh-Hadamard transform over uint32 with NATURAL
+    WRAPAROUND (i.e. modulo 2**32).  No modular reduction needed:
+    FWHT(FWHT(f) * FWHT(g)) == N * (f XOR-convolved with g), and with
+    N = 2**24 the parity we want sits at bit 24 of the result.
+    """
+    import numpy as np
+    n = a.size
+    h = 1
+    while h < n:
+        a = a.reshape(-1, 2 * h)
+        x = a[:, :h].copy()
+        y = a[:, h:].copy()
+        a[:, :h] = x + y
+        a[:, h:] = x - y
+        a = a.reshape(-1)
+        h *= 2
+    return a
+
+
+def g5_table():
+    """
+    The fixed 3-byte S-box chain behind balanced byte 5 after 4 inverse rounds:
+        M  = D ^ S1[B ^ S1[A]]
+        g5 = S3[A] ^ S1[M]
+    Index = (A << 16) | (B << 8) | D.  Key-independent, so build it once.
+    """
+    import numpy as np
+    sb = np.array(SB1, dtype=np.uint32)
+    # byte i of a word is at shift 8*(3-i)  (big-endian convention, as in
+    # state_byte / the C solver) -- NOT 8*i.  Getting this backwards produces a
+    # table that is wrong but still statistically plausible, which is a nasty
+    # bug: the candidate count looks perfect and the true key is simply absent.
+    b1 = ((sb >> np.uint32(16)) & np.uint32(0xFF)).astype(np.uint8)   # byte 1
+    b3 = (sb & np.uint32(0xFF)).astype(np.uint8)                      # byte 3
+    A = np.arange(256, dtype=np.uint8)[:, None, None]
+    B = np.arange(256, dtype=np.uint8)[None, :, None]
+    D = np.arange(256, dtype=np.uint8)[None, None, :]
+    inner = b1[(B ^ b1[A])]
+    M = (D ^ inner).astype(np.uint8)
+    return (b3[A] ^ b1[M]).astype(np.uint8).reshape(-1)
+
+
+def recover_full_given_byte(whi2=None, key=None, base=None, verbose=True):
+    """
+    Attack the REAL 16-round cipher with numpy, in about half a minute.
+
+    The full attack must try all 256 values of W2_hi2 in an outer loop; that is
+    what the C solver does, and it is why the C solver takes ~5 minutes. Here we
+    hand you that one byte so a single pass is enough -- everything else is
+    identical to the real attack, including the transform.
+
+    Returns (candidates, truth) for the remaining three key bytes
+    (W2_lo2, W2_hi0, W2_lo0), packed as (lo2 << 16) | (hi0 << 8) | lo0.
+    """
+    import numpy as np
+
+    key = key or random_key()
+    k0, k1 = _words(key)
+    w2lo, w2hi = ror(k0, 2), ror(k1, 2)
+    if whi2 is None:
+        whi2 = (w2hi >> 8) & 0xFF          # byte 2 of W2_hi, handed to us
+
+    base = base or random_block()
+    blocks = saturate(base, [2, 6])        # 65536 chosen plaintexts
+    n = len(blocks)
+    cl = np.empty(n, dtype=np.uint32)
+    ch = np.empty(n, dtype=np.uint32)
+    for i, b in enumerate(blocks):
+        a, c = _words(enc(b, key))
+        cl[i] = a
+        ch[i] = c
+    if verbose:
+        print("full 16-round cipher, %d chosen plaintexts (saturate bytes 2,6)" % n)
+
+    def byte(x, i):
+        return ((x >> np.uint32(8 * (3 - i))) & np.uint32(0xFF))
+
+    sb = np.array(SB1, dtype=np.uint32)
+    X6 = byte(ch, 2) ^ np.uint32(whi2)
+    s = sb[X6]
+    A0 = byte(cl, 2) ^ byte(s, 2)
+    D0 = byte(cl, 0) ^ byte(s, 0)
+    B0 = byte(ch, 0)
+    C5 = int(np.bitwise_xor.reduce(byte(ch, 2)))   # linear term of balanced byte 5
+
+    N = 1 << 24
+    H = np.zeros(N, dtype=np.uint32)
+    idx = (A0.astype(np.uint32) << np.uint32(16)) | \
+          (B0.astype(np.uint32) << np.uint32(8)) | D0.astype(np.uint32)
+    np.bitwise_xor.at(H, idx, np.uint32(1))        # parity histogram
+
+    g5 = g5_table()
+    Hh = _fwht_u32(H.copy())
+    bal = np.zeros(N, dtype=np.uint8)
+    for bit in range(8):
+        gb = ((g5 >> bit) & 1).astype(np.uint32)
+        conv = _fwht_u32((Hh * _fwht_u32(gb)).astype(np.uint32))
+        bal |= (((conv >> np.uint32(24)) & np.uint32(1)).astype(np.uint8) << bit)
+
+    cands = np.nonzero(bal == (C5 & 0xFF))[0]
+    truth = (((w2lo >> 8) & 0xFF) << 16) | (((w2hi >> 24) & 0xFF) << 8) | \
+            ((w2lo >> 24) & 0xFF)
+    if verbose:
+        print("given W2_hi2 = %02x" % whi2)
+        print("candidates for (W2_lo2, W2_hi0, W2_lo0): %d out of 2^24" % len(cands))
+        print("truth = %06x   present: %s"
+              % (truth, "YES" if truth in set(cands.tolist()) else "NO"))
+    return cands, truth
+
+
+# ==========================================================================
 def self_test():
     """Check the symbolic rules against reality."""
     k = key_from_hex("cafebabecafebabe")
@@ -401,6 +516,15 @@ def self_test():
                         "prediction claimed balance at round %d byte %d but "
                         "measurement disagrees (sat=%s)" % (r, i, sat))
     print("intlab self-test OK  (symbolic predictions are sound vs measurement)")
+    try:
+        import numpy  # noqa: F401
+    except ImportError:
+        print("  (numpy absent: skipping the full-cipher FWHT check)")
+        return
+    cands, truth = recover_full_given_byte(verbose=False)
+    assert truth in set(cands.tolist()), "full-cipher FWHT lost the true key"
+    print("  full 16-round FWHT recovery OK  (%d candidates, truth present)"
+          % len(cands))
 
 
 if __name__ == "__main__":
